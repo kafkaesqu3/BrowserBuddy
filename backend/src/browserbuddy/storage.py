@@ -1,6 +1,6 @@
 import sqlite3
 
-from browserbuddy.models import HistoryVisit
+from browserbuddy.models import HistoryVisit, TabRecord
 
 
 class Storage:
@@ -48,3 +48,50 @@ class Storage:
             """,
             (fts_query, limit),
         ).fetchall()
+
+    # -- open tabs -------------------------------------------------------
+
+    def replace_open_tabs(self, tabs: list[TabRecord]) -> None:
+        """Replace the entire current-tabs inventory with a fresh snapshot."""
+        with self._conn:
+            self._conn.execute("DELETE FROM open_tabs")
+            self._conn.executemany(
+                "INSERT INTO open_tabs (tab_id, window_id, url, title, group_id,"
+                " container, opened_at, last_activated_at, active_ms)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        t.tab_id,
+                        t.window_id,
+                        t.url,
+                        t.title,
+                        t.group_id,
+                        t.container,
+                        t.opened_at,
+                        t.last_activated_at,
+                        t.active_ms,
+                    )
+                    for t in tabs
+                ],
+            )
+
+    def list_open_tabs(self) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT * FROM open_tabs ORDER BY window_id, tab_id"
+        ).fetchall()
+
+    # -- ingest client cursors --------------------------------------------
+
+    def get_last_seq(self, client_id: str) -> int:
+        row = self._conn.execute(
+            "SELECT last_seq FROM ingest_clients WHERE client_id = ?", (client_id,)
+        ).fetchone()
+        return row["last_seq"] if row else 0
+
+    def set_last_seq(self, client_id: str, seq: int) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO ingest_clients (client_id, last_seq) VALUES (?, ?)"
+                " ON CONFLICT (client_id) DO UPDATE SET last_seq = excluded.last_seq",
+                (client_id, seq),
+            )
