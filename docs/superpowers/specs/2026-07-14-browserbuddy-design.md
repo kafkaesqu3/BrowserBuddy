@@ -50,8 +50,8 @@ backfill.
 
 ### Tier 1 — Ambient awareness (always on, metadata only)
 
-- All open tabs: URL, title, window, when opened, last activated, cumulative
-  active time.
+- All open tabs: URL, title, window, tab group, Firefox container, when
+  opened, last activated, cumulative active time.
 - Browser history: ongoing sync via `browser.history` API; one-time backfill by
   reading the Firefox profile's `places.sqlite` (read-only copy) from the
   backend. The backfill importer is a pluggable per-browser module (Firefox
@@ -119,30 +119,45 @@ indicator; pausable. While active:
 - **Web dashboard** — served by the backend: session timeline, session detail
   with link graph, hybrid search, chat with the recall agent.
 
-## Chrome portability constraints (designed in now, ported later)
+## Portability policy (Firefox first, Chrome cheap later)
 
-The extension targets Firefox first but is written so a Chrome port is a
-build-config change plus a history importer:
+**Priority rule: when portability and Firefox capture fidelity conflict,
+Firefox wins.** Portability is achieved by layering, not by lowest common
+denominator.
+
+**Portable core** — everything BrowserBuddy *requires* uses APIs identical in
+both browsers (`tabs`, `history`, `webNavigation`, `tabs.captureVisibleTab`,
+`storage`, `scripting`, `alarms`, `tabGroups`), promise-based `browser.*` via
+`webextension-polyfill`:
 
 - **MV3 only.** One codebase; a small build step generates per-target
-  manifests (`background.scripts` for Firefox vs `background.service_worker`
-  for Chrome; `browser_specific_settings` stripped for Chrome).
-- **Ephemeral background.** Chrome kills MV3 service workers after ~30s idle.
-  The background script assumes it can die at any moment: state in
-  `storage.session`, `alarms` instead of timers, sequence-numbered/acked event
-  batches, WebSocket heartbeat < 30s (keeps Chrome's worker alive).
-- **No DOM or compute in the background.** Chrome service workers have no
-  `DOMParser`/canvas. All DOM work happens in content scripts (Readability);
-  screenshot hashing/dedup happens in the backend — the extension ships raw
-  JPEGs.
-- **Cross-browser APIs only.** Promise-based `browser.*` via
-  `webextension-polyfill` (or a `globalThis.browser ?? chrome` alias);
-  `scripting` for injection; `contextMenus` not `menus`; no
-  `contextualIdentities` or sidebar APIs. Everything BrowserBuddy needs
-  (`tabs`, `history`, `webNavigation`, `captureVisibleTab`, `storage`) is
-  identical across both browsers.
+  manifests (`background.scripts` event page for Firefox vs
+  `background.service_worker` for Chrome; `browser_specific_settings`
+  stripped for Chrome). Note MV2 + persistent background page was considered
+  and rejected: it would simplify state handling but bets the architecture on
+  MV2's lifespan and adds no collection capability.
+- **Ephemeral background.** Not a Chrome concession — Firefox MV3 event pages
+  are also suspended after ~30s idle. The background script assumes it can
+  die at any moment: state in `storage.session`, `alarms` instead of timers,
+  sequence-numbered/acked event batches (protects against Firefox event-page
+  suspension too), WebSocket heartbeat < 30s.
+- **No DOM or compute in the background.** Costs Firefox nothing today: all
+  DOM work happens in content scripts (Readability); screenshot hashing/dedup
+  happens in the backend — the extension ships raw JPEGs over localhost. If a
+  future capture need requires background DOM (Firefox event pages have it;
+  Chrome workers don't), Firefox wins and Chrome uses an offscreen document.
 - **Backend seams.** Auth by shared secret, not extension origin; pluggable
   history importer.
+
+**Firefox enhancement layer** — Firefox-only APIs are used freely for capture
+richness, feature-detected, carried as optional fields in the event schema (a
+Chrome port leaves them null):
+
+- **Container identity** (`contextualIdentities`): tab snapshots and session
+  page visits record which Firefox container they belong to — valuable
+  research-context metadata with no Chrome equivalent.
+- Any future Firefox-only capture API goes in this layer rather than being
+  rejected for portability.
 
 ## Data flow
 
