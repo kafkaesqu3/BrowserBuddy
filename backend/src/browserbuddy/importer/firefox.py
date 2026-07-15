@@ -32,7 +32,9 @@ def find_default_profile(root: Path) -> Path:
         raise FileNotFoundError(
             f"No profiles.ini in {root} — is Firefox installed? Pass --profile explicitly."
         )
-    ini = configparser.ConfigParser()
+    # strict=False: real-world profiles.ini can contain duplicate sections
+    # after resets/migrations
+    ini = configparser.ConfigParser(strict=False)
     ini.read(ini_path)
 
     candidates: list[str] = []
@@ -44,6 +46,8 @@ def find_default_profile(root: Path) -> Path:
             candidates.append(ini[section]["Path"])
 
     for rel in candidates:
+        # IsRelative=0 entries store absolute paths; pathlib's `/` returns the
+        # absolute path unchanged, so no flag check is needed.
         profile = root / rel
         if profile.is_dir():
             return profile
@@ -76,6 +80,7 @@ def import_places(places_path: Path, storage: Storage) -> int:
                 SELECT p.url, IFNULL(p.title, ''), v.visit_date / 1000
                 FROM moz_historyvisits v
                 JOIN moz_places p ON p.id = v.place_id
+                WHERE v.visit_date IS NOT NULL AND p.url IS NOT NULL
                 ORDER BY v.visit_date
                 """
             )

@@ -47,6 +47,20 @@ def test_import_is_idempotent(tmp_path, storage):
     assert import_places(places, storage) == 0
 
 
+def test_import_skips_corrupt_rows(tmp_path, storage):
+    places = tmp_path / "places.sqlite"
+    make_places(
+        places,
+        [
+            ("https://good.com", "Good", 1720000000000000),
+            (None, "No URL", 1720000001000000),  # NULL url
+            ("https://no-date.com", "No date", None),  # NULL visit_date
+        ],
+    )
+    assert import_places(places, storage) == 1
+    assert len(storage.search_history("good")) == 1
+
+
 def test_find_default_profile(tmp_path):
     (tmp_path / "profiles.ini").write_text(
         "[Install0123ABCD]\n"
@@ -59,6 +73,21 @@ def test_find_default_profile(tmp_path):
     )
     (tmp_path / "Profiles" / "xyz.default-release").mkdir(parents=True)
     assert find_default_profile(tmp_path) == tmp_path / "Profiles" / "xyz.default-release"
+
+
+def test_find_default_profile_absolute_path(tmp_path):
+    profile_dir = tmp_path / "elsewhere" / "abs.profile"
+    profile_dir.mkdir(parents=True)
+    root = tmp_path / "firefox"
+    root.mkdir()
+    (root / "profiles.ini").write_text(
+        "[Profile0]\n"
+        "Name=abs\n"
+        "IsRelative=0\n"
+        f"Path={profile_dir}\n"
+        "Default=1\n"
+    )
+    assert find_default_profile(root) == profile_dir
 
 
 def test_find_default_profile_missing(tmp_path):
