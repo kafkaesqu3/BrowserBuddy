@@ -1525,6 +1525,25 @@ git commit -m "Add README and pass zero-warnings gate"
 
 ---
 
+## Follow-ups for the extension (Tier-1) milestone
+
+Recorded from the final whole-branch review (2026-07-15); none block this
+milestone:
+
+1. **Stale concurrent WS connection can apply an out-of-order `tab_state`.**
+   The seq cursor is monotonic in the DB, but each connection caches
+   `last_seq` locally — a zombie MV3-worker socket can overwrite a newer tab
+   snapshot with an older one (self-healing on next snapshot). Fix with a
+   per-event DB cursor check or a single-connection-per-client_id policy.
+2. **Corrupt `places.sqlite` yields a raw traceback.** CLI catches only
+   FileNotFoundError; catch `sqlite3.DatabaseError` in `import-history` with
+   an actionable message. A negative `visit_date` row would also abort the
+   import via the `ge=0` validator — filter in SQL like the NULL case.
+3. Minor: app lifespan doesn't close the DB connection; `/ws` accept should
+   carry a one-line comment recording the secret-not-origin decision; sync
+   DB calls on the event loop will matter at Tier-2 ingest volumes; `--limit`
+   help doesn't mention the 200 cap.
+
 ## Self-review notes
 
 - **Spec coverage (this milestone):** storage schema v1 ✓, ingest protocol with versioning/seq/ack/idempotency ✓, secret-not-origin auth ✓ (no origin checks anywhere), 127.0.0.1 binding ✓ (Settings default + uvicorn host), pluggable importer seam ✓ (module-level interface documented in `firefox.py` docstring), container/tab-group fields in schema ✓. Deferred to later plans by design: sessions/page_visits tables, embeddings, agent, MCP, digests, dashboard, extension.
