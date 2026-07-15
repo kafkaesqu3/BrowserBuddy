@@ -70,11 +70,17 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)")
-    row = conn.execute("SELECT version FROM schema_version").fetchone()
-    current = row["version"] if row else 0
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"
+    )
+    row = conn.execute("SELECT MAX(version) AS version FROM schema_version").fetchone()
+    current = row["version"] or 0
     for version, script in enumerate(MIGRATIONS[current:], start=current + 1):
-        conn.executescript(script)
-        conn.execute("DELETE FROM schema_version")
-        conn.execute("INSERT INTO schema_version (version) VALUES (?)", (version,))
-        conn.commit()
+        # executescript() autocommits each statement unless the script opens its
+        # own transaction; wrap DDL + version bump so a crash can't leave the
+        # schema ahead of schema_version.
+        conn.executescript(
+            f"BEGIN;\n{script}\n"
+            f"INSERT OR REPLACE INTO schema_version (version) VALUES ({version});\n"
+            "COMMIT;"
+        )
