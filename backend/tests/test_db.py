@@ -2,9 +2,7 @@ from browserbuddy import db
 
 
 def _tables(conn):
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
-    ).fetchall()
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')").fetchall()
     return {r["name"] for r in rows}
 
 
@@ -39,9 +37,7 @@ def test_fts_stays_in_sync(tmp_path):
         " VALUES ('https://example.com/quantum', 'Quantum Computing Intro', 1000, 'import')"
     )
     conn.commit()
-    hit = conn.execute(
-        "SELECT rowid FROM history_fts WHERE history_fts MATCH 'quantum'"
-    ).fetchone()
+    hit = conn.execute("SELECT rowid FROM history_fts WHERE history_fts MATCH 'quantum'").fetchone()
     assert hit is not None
     conn.close()
 

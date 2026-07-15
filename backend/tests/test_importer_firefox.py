@@ -17,9 +17,7 @@ def make_places(path, rows):
     )
     for i, (url, title, visit_date_us) in enumerate(rows, start=1):
         conn.execute("INSERT INTO moz_places VALUES (?, ?, ?)", (i, url, title))
-        conn.execute(
-            "INSERT INTO moz_historyvisits VALUES (?, ?, ?)", (i, i, visit_date_us)
-        )
+        conn.execute("INSERT INTO moz_historyvisits VALUES (?, ?, ?)", (i, i, visit_date_us))
     conn.commit()
     conn.close()
 
@@ -81,11 +79,7 @@ def test_find_default_profile_absolute_path(tmp_path):
     root = tmp_path / "firefox"
     root.mkdir()
     (root / "profiles.ini").write_text(
-        "[Profile0]\n"
-        "Name=abs\n"
-        "IsRelative=0\n"
-        f"Path={profile_dir}\n"
-        "Default=1\n"
+        f"[Profile0]\nName=abs\nIsRelative=0\nPath={profile_dir}\nDefault=1\n"
     )
     assert find_default_profile(root) == profile_dir
 

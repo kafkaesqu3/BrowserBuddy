@@ -72,9 +72,7 @@ def connect(db_path: Path | str) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)"
-    )
+    conn.execute("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)")
     row = conn.execute("SELECT MAX(version) AS version FROM schema_version").fetchone()
     current = row["version"] or 0
     for version, script in enumerate(MIGRATIONS[current:], start=current + 1):

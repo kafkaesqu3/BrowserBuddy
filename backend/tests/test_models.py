@@ -51,9 +51,7 @@ def test_unknown_event_type_rejected():
 
 def test_seq_must_be_positive():
     with pytest.raises(ValidationError):
-        EventEnvelope.model_validate(
-            {"v": 1, "seq": 0, "event": {"type": "tab_state", "tabs": []}}
-        )
+        EventEnvelope.model_validate({"v": 1, "seq": 0, "event": {"type": "tab_state", "tabs": []}})
 
 
 def test_envelope_tolerates_extra_fields():

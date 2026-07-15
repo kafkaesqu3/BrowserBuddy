@@ -12,11 +12,6 @@ from browserbuddy.storage import Storage
 app = typer.Typer(help="BrowserBuddy — your browser's research historian.")
 
 
-def _storage() -> Storage:
-    settings = get_settings()
-    return Storage(db.connect(settings.db_path))
-
-
 def _fmt_time(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M")
 
@@ -52,11 +47,15 @@ def import_history(
             typer.echo(f"Error: {exc}", err=True)
             raise typer.Exit(1) from exc
     places = profile / "places.sqlite"
+    settings = get_settings()
+    conn = db.connect(settings.db_path)
     try:
-        count = firefox.import_places(places, _storage())
+        count = firefox.import_places(places, Storage(conn))
     except FileNotFoundError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
+    finally:
+        conn.close()
     typer.echo(f"Imported {count} new history entries from {places}")
 
 
@@ -66,7 +65,12 @@ def search(
     limit: int = typer.Option(20, help="Maximum results."),
 ) -> None:
     """Full-text search over captured browser history."""
-    results = _storage().search_history(query, limit=limit)
+    settings = get_settings()
+    conn = db.connect(settings.db_path)
+    try:
+        results = Storage(conn).search_history(query, limit=limit)
+    finally:
+        conn.close()
     if not results:
         typer.echo("No results.")
         return
@@ -78,15 +82,19 @@ def search(
 @app.command()
 def tabs() -> None:
     """Show the current open-tab inventory (as last synced by the extension)."""
-    rows = _storage().list_open_tabs()
+    settings = get_settings()
+    conn = db.connect(settings.db_path)
+    try:
+        rows = Storage(conn).list_open_tabs()
+    finally:
+        conn.close()
     if not rows:
         typer.echo("No open tabs recorded yet. Is the extension connected?")
         return
     for row in rows:
         container = f" [{row['container']}]" if row["container"] else ""
         typer.echo(
-            f"w{row['window_id']} t{row['tab_id']}{container}  "
-            f"{row['title'] or '(untitled)'}"
+            f"w{row['window_id']} t{row['tab_id']}{container}  {row['title'] or '(untitled)'}"
         )
         typer.echo(f"        {row['url']}")
 

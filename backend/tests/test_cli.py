@@ -18,8 +18,11 @@ def _seed_history(tmp_path):
 
     conn = db.connect(tmp_path / "buddy.db")
     Storage(conn).insert_history_visits(
-        [HistoryVisit(url="https://arxiv.org/abs/9", title="Vector DB survey",
-                      visit_time=1720000000000)],
+        [
+            HistoryVisit(
+                url="https://arxiv.org/abs/9", title="Vector DB survey", visit_time=1720000000000
+            )
+        ],
         source="import",
     )
     conn.close()
@@ -68,9 +71,7 @@ def test_import_history_with_explicit_profile(tmp_path):
     conn.commit()
     conn.close()
 
-    result = runner.invoke(
-        app, ["import-history", "--profile", str(profile)], env=_env(tmp_path)
-    )
+    result = runner.invoke(app, ["import-history", "--profile", str(profile)], env=_env(tmp_path))
     assert result.exit_code == 0
     assert "Imported 1" in result.output
 
@@ -81,3 +82,27 @@ def test_import_history_missing_profile_fails_clearly(tmp_path):
     )
     assert result.exit_code == 1
     assert "places.sqlite" in result.output
+
+
+def test_tabs_with_data(tmp_path):
+    from browserbuddy import db
+    from browserbuddy.models import TabRecord
+    from browserbuddy.storage import Storage
+
+    conn = db.connect(tmp_path / "buddy.db")
+    Storage(conn).replace_open_tabs(
+        [TabRecord(tab_id=1, window_id=1, url="https://a.com", title="A", container="Work")]
+    )
+    conn.close()
+    result = runner.invoke(app, ["tabs"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "w1 t1" in result.output
+    assert "[Work]" in result.output
+    assert "https://a.com" in result.output
+
+
+def test_search_output_includes_title_and_timestamp(tmp_path):
+    _seed_history(tmp_path)
+    result = runner.invoke(app, ["search", "vector"], env=_env(tmp_path))
+    assert "Vector DB survey" in result.output
+    assert "2024-07-03" in result.output  # 1720000000000 ms = 2024-07-03T09:46:40Z
