@@ -1,11 +1,9 @@
 [project]
 name = "browserbuddy"
 version = "0.1.0"
-description = "Add your description here"
+description = "Local backend for BrowserBuddy: browsing memory ingest, search, and recall agent"
 readme = "README.md"
-authors = [
-    { email = "david@MOTHER.local" }
-]
+authors = [{ name = "David Tulis" }]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.139.0",
@@ -15,7 +13,8 @@ dependencies = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.11.19,<0.12.0"]
+# Upper bound intentionally omitted (review decision); uv warns about this at build time.
+requires = ["uv_build>=0.11.19"]
 build-backend = "uv_build"
 
 [dependency-groups]
