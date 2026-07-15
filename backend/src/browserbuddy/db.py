@@ -61,7 +61,9 @@ MIGRATIONS: list[str] = [
 
 def connect(db_path: Path | str) -> sqlite3.Connection:
     """Open (creating if needed) the BrowserBuddy database and apply migrations."""
-    conn = sqlite3.connect(db_path)
+    # Single-writer by design (one Storage per connection); FastAPI/TestClient may
+    # touch it from another thread.
+    conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")

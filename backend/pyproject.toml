@@ -35,3 +35,7 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = [
+    # Starlette 1.x warns to use httpx2; suppress until FastAPI bumps its dep.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated:UserWarning",
+]

@@ -77,7 +77,9 @@ class Storage:
 
     def list_open_tabs(self) -> list[sqlite3.Row]:
         return self._conn.execute(
-            "SELECT * FROM open_tabs ORDER BY window_id, tab_id"
+            "SELECT tab_id, window_id, url, title, group_id, container,"
+            " opened_at, last_activated_at, active_ms"
+            " FROM open_tabs ORDER BY window_id, tab_id"
         ).fetchall()
 
     # -- ingest client cursors --------------------------------------------
