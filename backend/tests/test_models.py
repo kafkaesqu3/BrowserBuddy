@@ -54,3 +54,16 @@ def test_seq_must_be_positive():
         EventEnvelope.model_validate(
             {"v": 1, "seq": 0, "event": {"type": "tab_state", "tabs": []}}
         )
+
+
+def test_envelope_tolerates_extra_fields():
+    """Forward-compat: older backend must accept newer extension envelopes."""
+    env = EventEnvelope.model_validate(
+        {
+            "v": 1,
+            "seq": 1,
+            "event": {"type": "tab_state", "tabs": []},
+            "future_field": "ignored",
+        }
+    )
+    assert isinstance(env.event, TabStateEvent)
