@@ -28,3 +28,9 @@ def test_client_seq_roundtrip(storage):
     storage.set_last_seq("ext-1", 42)
     assert storage.get_last_seq("ext-1") == 42
     assert storage.get_last_seq("other") == 0
+
+
+def test_last_seq_never_regresses(storage):
+    storage.set_last_seq("ext-1", 42)
+    storage.set_last_seq("ext-1", 1)
+    assert storage.get_last_seq("ext-1") == 42

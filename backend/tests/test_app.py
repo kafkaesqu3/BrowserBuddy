@@ -93,6 +93,33 @@ def test_ws_history_visits_ingested(client, app):
     assert len(results) == 1
 
 
+def test_ws_non_json_after_auth_closes_1003(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_text("not json")
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            ws.receive_json()
+        assert excinfo.value.code == 1003
+
+
+def test_ws_binary_first_frame_rejected(client):
+    with client.websocket_connect("/ws") as ws:
+        ws.send_bytes(b"\x00\x01")
+        with pytest.raises(WebSocketDisconnect) as excinfo:
+            ws.receive_json()
+        assert excinfo.value.code == 4401
+
+
+def test_ws_preauth_disconnect_is_clean(client, app):
+    # Client connects and drops without ever sending auth; server must survive.
+    with client.websocket_connect("/ws"):
+        pass
+    with client.websocket_connect("/ws") as ws:
+        assert _auth(ws, app) == {"type": "auth_ok", "last_seq": 0}
+        ws.send_json(_tab_state_envelope(1, ["https://a.com"]))
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+
+
 def test_ws_integrity_error_gets_error_frame_and_connection_survives(client, app):
     with client.websocket_connect("/ws") as ws:
         _auth(ws, app)

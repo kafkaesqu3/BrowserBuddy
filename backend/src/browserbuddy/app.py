@@ -38,7 +38,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await ws.accept()
         try:
             auth = AuthMessage.model_validate(await ws.receive_json())
-        except (ValidationError, ValueError):
+        except WebSocketDisconnect:
+            return
+        except (ValidationError, ValueError, KeyError):
+            # KeyError: starlette's receive_json on a binary frame.
+            # JSONDecodeError is a ValueError subclass, already covered.
             await ws.close(code=WS_CLOSE_UNAUTHORIZED)
             return
         if not verify_secret(app.state.secret, auth.secret):
@@ -50,7 +54,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         try:
             while True:
-                raw = await ws.receive_json()
+                try:
+                    raw = await ws.receive_json()
+                except (ValueError, KeyError):
+                    # Not JSON / binary frame: unsupported data, close per RFC 6455.
+                    await ws.close(code=1003)
+                    return
                 try:
                     envelope = EventEnvelope.model_validate(raw)
                 except ValidationError as exc:
@@ -81,3 +90,5 @@ def _apply_event(storage: Storage, envelope: EventEnvelope) -> None:
         storage.replace_open_tabs(event.tabs)
     elif isinstance(event, HistoryVisitsEvent):
         storage.insert_history_visits(event.visits, source="sync")
+    else:  # pragma: no cover - unreachable until the union grows
+        raise AssertionError(f"unhandled event type: {type(event).__name__}")

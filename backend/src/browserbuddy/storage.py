@@ -91,9 +91,15 @@ class Storage:
         return row["last_seq"] if row else 0
 
     def set_last_seq(self, client_id: str, seq: int) -> None:
+        """Advance the client's ingest cursor.
+
+        Monotonic: the cursor never regresses, so a stale concurrent connection
+        cannot rewind acked progress.
+        """
         with self._conn:
             self._conn.execute(
                 "INSERT INTO ingest_clients (client_id, last_seq) VALUES (?, ?)"
-                " ON CONFLICT (client_id) DO UPDATE SET last_seq = excluded.last_seq",
+                " ON CONFLICT (client_id)"
+                " DO UPDATE SET last_seq = MAX(last_seq, excluded.last_seq)",
                 (client_id, seq),
             )

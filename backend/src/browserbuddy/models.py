@@ -47,7 +47,11 @@ class AuthMessage(ProtocolModel):
 
 
 class EventEnvelope(ProtocolModel):
-    """Versioned, sequence-numbered wrapper for every ingest event."""
+    """Versioned, sequence-numbered wrapper for every ingest event.
+
+    An `error` frame from the server means the event was rejected — clients
+    must skip or fix it, never blind-retry the same seq.
+    """
 
     # TODO(protocol v2): reject v > PROTOCOL_VERSION in the WS handler
     v: int = Field(ge=1)
