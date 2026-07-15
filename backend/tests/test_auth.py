@@ -1,3 +1,5 @@
+import pytest
+
 from browserbuddy.auth import get_or_create_secret, verify_secret
 
 
@@ -11,7 +13,15 @@ def test_secret_created_once_and_persisted(tmp_path):
     assert (secret_file.stat().st_mode & 0o777) == 0o600
 
 
+def test_empty_secret_file_raises(tmp_path):
+    (tmp_path / "secret").write_text("   ")
+    with pytest.raises(ValueError, match="empty"):
+        get_or_create_secret(tmp_path)
+
+
 def test_verify_secret():
     assert verify_secret("abc", "abc")
     assert not verify_secret("abc", "abd")
     assert not verify_secret("abc", "")
+    assert not verify_secret("", "abc")
+    assert not verify_secret("", "")
