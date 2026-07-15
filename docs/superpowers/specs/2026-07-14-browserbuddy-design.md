@@ -54,7 +54,8 @@ backfill.
   active time.
 - Browser history: ongoing sync via `browser.history` API; one-time backfill by
   reading the Firefox profile's `places.sqlite` (read-only copy) from the
-  backend.
+  backend. The backfill importer is a pluggable per-browser module (Firefox
+  `places.sqlite` now; Chrome's `History` SQLite file later, same interface).
 - No page content, no screenshots. Same sensitivity level as what Firefox
   already stores.
 - Private windows are never captured in either tier.
@@ -76,9 +77,14 @@ indicator; pausable. While active:
 ### Firefox WebExtension (TypeScript, thin by design)
 
 - **Background script** — session state machine, tab/history telemetry, event
-  batching, WebSocket client to the backend. When the backend is unreachable,
-  events buffer in `storage.local` and retry with backoff; a warning badge is
-  shown. Session data is never lost to a dead backend.
+  batching, WebSocket client to the backend. Written as an **ephemeral,
+  stateless event handler**: all session state (active session, pause state,
+  per-tab dwell accounting) lives in `storage.session` and is rehydrated on
+  wake; timers use the `alarms` API; WebSocket heartbeat every ~20s. Event
+  batches carry **sequence numbers and acks** so worker death or reconnect
+  can't lose or duplicate events. When the backend is unreachable, events
+  buffer in `storage.local` and retry with backoff; a warning badge is shown.
+  Session data is never lost to a dead backend.
 - **Content script** — injected only during active sessions: Readability.js
   extraction, click/outbound-link capture, scroll/visibility signals.
 - **Toolbar popup** — start/stop/pause session with a name, recording
@@ -88,8 +94,11 @@ indicator; pausable. While active:
 
 - **Ingest layer** — WebSocket for the event stream, REST for screenshot
   blobs. Bound to `127.0.0.1` only. Shared-secret auth generated at first
-  pairing (pattern from eyalzh/browser-control-mcp). Versioned event schema so
-  extension and backend evolve independently.
+  pairing (pattern from eyalzh/browser-control-mcp); the secret, not the
+  extension origin, is the auth (accepts both `moz-extension://` and
+  `chrome-extension://` origins). Versioned event schema with sequence
+  numbers and acks (idempotent, at-least-once delivery) so extension and
+  backend evolve independently and reconnects are safe.
 - **Storage** — single SQLite DB (WAL mode): `sessions`, `page_visits`,
   `nav_edges`, `outbound_links`, `tab_snapshots`, `history_entries`. FTS5 for
   full text; `sqlite-vec` for embeddings (one file, no second DB). Screenshots
@@ -109,6 +118,31 @@ indicator; pausable. While active:
 - **CLI** — `buddy ask "..."`, `buddy sessions`, `buddy search "..."`.
 - **Web dashboard** — served by the backend: session timeline, session detail
   with link graph, hybrid search, chat with the recall agent.
+
+## Chrome portability constraints (designed in now, ported later)
+
+The extension targets Firefox first but is written so a Chrome port is a
+build-config change plus a history importer:
+
+- **MV3 only.** One codebase; a small build step generates per-target
+  manifests (`background.scripts` for Firefox vs `background.service_worker`
+  for Chrome; `browser_specific_settings` stripped for Chrome).
+- **Ephemeral background.** Chrome kills MV3 service workers after ~30s idle.
+  The background script assumes it can die at any moment: state in
+  `storage.session`, `alarms` instead of timers, sequence-numbered/acked event
+  batches, WebSocket heartbeat < 30s (keeps Chrome's worker alive).
+- **No DOM or compute in the background.** Chrome service workers have no
+  `DOMParser`/canvas. All DOM work happens in content scripts (Readability);
+  screenshot hashing/dedup happens in the backend — the extension ships raw
+  JPEGs.
+- **Cross-browser APIs only.** Promise-based `browser.*` via
+  `webextension-polyfill` (or a `globalThis.browser ?? chrome` alias);
+  `scripting` for injection; `contextMenus` not `menus`; no
+  `contextualIdentities` or sidebar APIs. Everything BrowserBuddy needs
+  (`tabs`, `history`, `webNavigation`, `captureVisibleTab`, `storage`) is
+  identical across both browsers.
+- **Backend seams.** Auth by shared secret, not extension origin; pluggable
+  history importer.
 
 ## Data flow
 
@@ -170,7 +204,8 @@ Generated on session end, stored as markdown, regenerable:
 ## Out of scope for v1
 
 - At-rest encryption
-- Chrome/other-browser ports (thin extension keeps this cheap later)
+- Chrome/other-browser ports (the Chrome portability constraints above keep
+  this to a build-config change + history importer later)
 - Cross-session synthesis and research-trail visualization (post-v1)
 - Full HTML/MHTML page archiving
 - Sidebar chat UI
