@@ -25,12 +25,18 @@ class Storage:
         return cur.rowcount
 
     def search_history(self, query: str, limit: int = 20) -> list[sqlite3.Row]:
-        """Full-text search over history. User tokens are quoted, so FTS5
-        operators in user input are treated as literals, not syntax."""
+        """Full-text search over history.
+
+        Tokens are OR-combined and bm25-ranked, so any matching term returns a
+        result and pages matching more terms rank higher (recall-friendly for
+        short title/URL fields). Each token is quoted, so FTS5 operators in user
+        input are treated as literals, not syntax.
+        """
+        limit = max(1, min(limit, 200))
         tokens = query.split()
         if not tokens:
             return []
-        fts_query = " ".join('"' + t.replace('"', '""') + '"' for t in tokens)
+        fts_query = " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
         return self._conn.execute(
             """
             SELECT h.url, h.title, h.visit_time

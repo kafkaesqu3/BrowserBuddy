@@ -34,3 +34,26 @@ def test_search_survives_fts_special_chars(storage):
 
 def test_search_empty_query_returns_empty(storage):
     assert storage.search_history("   ") == []
+
+
+def test_search_or_semantics_and_ranking(storage):
+    storage.insert_history_visits(
+        [
+            _visit("https://a.com", "Python tutorial"),
+            _visit("https://b.com", "async Python deep dive"),
+        ],
+        source="import",
+    )
+    results = storage.search_history("python async")
+    assert len(results) == 2  # OR: both match "python"
+    assert results[0]["url"] == "https://b.com"  # matches both terms, ranks first
+
+
+def test_duplicate_url_time_keeps_first_title(storage):
+    # OR IGNORE preserves the first-seen title; the ignored insert fires no
+    # FTS trigger, so the index stays consistent with the kept row.
+    storage.insert_history_visits([_visit("https://a.com", "First title")], "import")
+    storage.insert_history_visits([_visit("https://a.com", "Second title")], "sync")
+    results = storage.search_history("first")
+    assert len(results) == 1
+    assert storage.search_history("second") == []
