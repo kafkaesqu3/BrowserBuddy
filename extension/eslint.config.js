@@ -1,4 +1,5 @@
 import js from "@eslint/js";
+import globals from "globals";
 import ts from "typescript-eslint";
 
 export default ts.config(
@@ -8,6 +9,6 @@ export default ts.config(
   // Build scripts run in Node — grant Node globals.
   {
     files: ["scripts/**/*.mjs"],
-    languageOptions: { globals: { URL: "readonly", console: "readonly" } },
+    languageOptions: { globals: globals.node },
   },
 );
