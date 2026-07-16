@@ -66,10 +66,20 @@ Started/stopped from the toolbar popup with a session name; visible recording
 indicator; pausable. While active:
 
 - Full Readability.js text extraction of every page read (fallback: raw text).
+- **Raw page HTML shipped alongside the extracted text**, stored
+  content-addressed (SHA-256, deduped like screenshots). This keeps sessions
+  reprocessable: extraction bugs are fixable retroactively, and improved
+  extractors/embeddings can be re-run over stored HTML without touching the
+  extension (pattern validated by Hister's server-side extraction + reindex).
+- SPA handling: navigations detected via the Navigation API
+  (`navigatesuccess`) plus change-driven recapture — re-extract on a decaying
+  schedule and resubmit only when the DOM actually changed.
 - Dwell-gated screenshots via `tabs.captureVisibleTab`: after ~5s on a page and
   after major scrolls; JPEG; perceptual-hash deduped.
 - Every link clicked; all outbound links catalogued per page.
-- Navigation edges (how page B was reached from page A).
+- Navigation edges (how page B was reached from page A), including
+  search-engine provenance (which query led to a page) derived from
+  `webNavigation`/referrer data — not DOM scraping of result pages.
 - Per-page dwell time from scroll/visibility/focus signals.
 
 ## Components
@@ -88,7 +98,8 @@ indicator; pausable. While active:
 - **Content script** — injected only during active sessions: Readability.js
   extraction, click/outbound-link capture, scroll/visibility signals.
 - **Toolbar popup** — start/stop/pause session with a name, recording
-  indicator, backend connection status.
+  indicator, backend connection status. Per-tab badge states (recording /
+  excluded / capture error) so failures are visible at a glance.
 
 ### Local backend (Python 3.12+, FastAPI + Pydantic AI)
 
@@ -99,14 +110,24 @@ indicator; pausable. While active:
   `chrome-extension://` origins). Versioned event schema with sequence
   numbers and acks (idempotent, at-least-once delivery) so extension and
   backend evolve independently and reconnects are safe.
+  **Sensitive-content firewall at ingest:** built-in regexes (private keys,
+  cloud credentials, API tokens) reject matching page captures before
+  storage — full-text session capture must not archive secrets.
 - **Storage** — single SQLite DB (WAL mode): `sessions`, `page_visits`,
   `nav_edges`, `outbound_links`, `tab_snapshots`, `history_entries`. FTS5 for
   full text; `sqlite-vec` for embeddings (one file, no second DB). Screenshots
-  as content-addressed JPEGs on disk. Digests as markdown files. All open
+  and raw page HTML as content-addressed blobs on disk (SHA-256 keyed,
+  deduped, ref-counted for cleanup). Digests as markdown files. All open
   formats.
 - **Enrichment pipeline** — background workers, never blocking ingest: chunk +
   embed page text (local sentence-transformers), OCR screenshots, generate the
-  session digest on session end.
+  session digest on session end. Embedding details (starting values from
+  Hister's proven pipeline): ~512-token chunks with 64-token overlap, a
+  separate metadata embedding (title/author/description/URL), title-prefixed
+  body chunks, batched with retry and a concurrency cap. Embedding is a
+  **tracked pipeline step with per-document completion state** — never
+  fire-and-forget — so the vector store cannot silently drift from the text
+  index (a known Hister failure mode).
 - **Agent layer** — one Pydantic AI agent; model via configurable
   OpenAI-compatible `base_url`/model/key. Typed tools:
   - `search_memory` — hybrid FTS5 + vector search with citations (URL + session)
@@ -114,7 +135,9 @@ indicator; pausable. While active:
   - `get_open_tabs` — current tab inventory with open durations
   - `list_sessions`, `get_session_digest`, `get_page`, `get_screenshots`
 - **MCP server** — FastMCP exposing the same tools, so Claude Code or any MCP
-  client can query the memory.
+  client can query the memory. Tool descriptions embed live capability state
+  (e.g., whether semantic search / OCR results are available) so connected
+  models know what to ask for.
 - **CLI** — `buddy ask "..."`, `buddy sessions`, `buddy search "..."`.
 - **Web dashboard** — served by the backend: session timeline, session detail
   with link graph, hybrid search, chat with the recall agent.
@@ -133,9 +156,14 @@ both browsers (`tabs`, `history`, `webNavigation`, `tabs.captureVisibleTab`,
 - **MV3 only.** One codebase; a small build step generates per-target
   manifests (`background.scripts` event page for Firefox vs
   `background.service_worker` for Chrome; `browser_specific_settings`
-  stripped for Chrome). Note MV2 + persistent background page was considered
-  and rejected: it would simplify state handling but bets the architecture on
-  MV2's lifespan and adds no collection capability.
+  stripped for Chrome) — the exact approach Hister ships in production via a
+  Vite plugin. Declare an explicit `browser_specific_settings.gecko.id` from
+  day one (AMO signing/ID friction is well documented). Note MV2 + persistent
+  background page was considered and rejected: it would simplify state
+  handling but bets the architecture on MV2's lifespan and adds no collection
+  capability. API namespace choice (bare `chrome.*` as Hister does, vs a
+  `globalThis.browser ?? chrome` alias, vs webextension-polyfill) is decided
+  at extension scaffold time.
 - **Ephemeral background.** Not a Chrome concession — Firefox MV3 event pages
   are also suspended after ~30s idle. The background script assumes it can
   die at any moment: state in `storage.session`, `alarms` instead of timers,
@@ -222,5 +250,7 @@ Generated on session end, stored as markdown, regenerable:
 - Chrome/other-browser ports (the Chrome portability constraints above keep
   this to a build-config change + history importer later)
 - Cross-session synthesis and research-trail visualization (post-v1)
-- Full HTML/MHTML page archiving
+- Faithful page archiving for visual replay (SingleFile/MHTML). Raw DOM HTML
+  *is* stored during sessions, but for re-extraction, not for rendering pages
+  as they looked.
 - Sidebar chat UI
