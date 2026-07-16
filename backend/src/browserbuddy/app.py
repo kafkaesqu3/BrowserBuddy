@@ -62,7 +62,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # Not JSON / binary frame: unsupported data, close per RFC 6455.
                     await ws.close(code=1003)
                     return
-                if raw == {"type": "ping"}:  # extension heartbeat (keeps MV3 worker alive)
+                # Extension heartbeat (keeps MV3 worker alive). Match on the
+                # type field only: newer clients may add fields to ping frames.
+                if isinstance(raw, dict) and raw.get("type") == "ping":
                     await ws.send_json({"type": "pong"})
                     continue
                 try:
@@ -79,7 +81,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         _apply_event(storage, envelope)
                         storage.set_last_seq(auth.client_id, envelope.seq)
                     except sqlite3.IntegrityError as exc:
-                        logger.warning("Integrity error applying event: %s", exc)
+                        logger.warning(
+                            "Integrity error applying event seq=%d: %s", envelope.seq, exc
+                        )
                         await ws.send_json({"type": "error", "detail": "integrity error"})
                         continue
                 await ws.send_json({"type": "ack", "seq": envelope.seq})

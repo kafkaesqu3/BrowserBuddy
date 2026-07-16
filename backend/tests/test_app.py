@@ -150,9 +150,17 @@ def test_ws_ping_gets_pong(client, app):
         assert ws.receive_json() == {"type": "ack", "seq": 1}
 
 
+def test_ws_ping_with_extra_fields_still_gets_pong(client, app):
+    """Forward-compat: newer clients may add fields to ping frames."""
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json({"type": "ping", "t": 123})
+        assert ws.receive_json() == {"type": "pong"}
+
+
 def test_ws_stale_connection_cannot_apply_old_snapshot(client, app):
-    # Two live sockets for the same client_id: the stale one must not
-    # overwrite newer state, even though its connection-local view is old.
+    # With two connections sharing a client_id, the per-event DB read (not a
+    # connection-local cache) prevents the stale socket from regressing state.
     with client.websocket_connect("/ws") as stale:
         _auth(stale, app, client_id="ext-1")
         with client.websocket_connect("/ws") as fresh:
