@@ -1,0 +1,4 @@
+{
+  "permissions": ["tabs", "history", "storage", "alarms"],
+  "background": { "service_worker": "background.js", "type": "module" }
+}

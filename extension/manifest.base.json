@@ -1,0 +1,7 @@
+{
+  "manifest_version": 3,
+  "name": "BrowserBuddy",
+  "version": "0.1.0",
+  "description": "Research historian: syncs tabs and history to your local BrowserBuddy backend.",
+  "options_ui": { "page": "src/options/options.html" }
+}

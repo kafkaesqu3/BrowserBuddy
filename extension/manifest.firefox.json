@@ -1,0 +1,7 @@
+{
+  "permissions": ["tabs", "history", "storage", "alarms", "contextualIdentities", "cookies"],
+  "background": { "scripts": ["background.js"], "type": "module" },
+  "browser_specific_settings": {
+    "gecko": { "id": "browserbuddy@tulis.dev", "strict_min_version": "128.0" }
+  }
+}
