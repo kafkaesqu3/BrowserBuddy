@@ -80,7 +80,7 @@ def import_places(places_path: Path, storage: Storage) -> int:
                 SELECT p.url, IFNULL(p.title, ''), v.visit_date / 1000
                 FROM moz_historyvisits v
                 JOIN moz_places p ON p.id = v.place_id
-                WHERE v.visit_date IS NOT NULL AND p.url IS NOT NULL
+                WHERE v.visit_date IS NOT NULL AND v.visit_date >= 0 AND p.url IS NOT NULL
                 ORDER BY v.visit_date
                 """
             )

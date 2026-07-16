@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -54,6 +55,13 @@ def import_history(
     except FileNotFoundError as exc:
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
+    except sqlite3.DatabaseError as exc:
+        typer.echo(
+            f"Error: {places} is corrupt or not a SQLite database ({exc}). "
+            "If Firefox is running, close it and retry.",
+            err=True,
+        )
+        raise typer.Exit(1) from exc
     finally:
         conn.close()
     typer.echo(f"Imported {count} new history entries from {places}")
@@ -62,7 +70,7 @@ def import_history(
 @app.command()
 def search(
     query: str,
-    limit: int = typer.Option(20, help="Maximum results."),
+    limit: int = typer.Option(20, help="Maximum results (capped at 200)."),
 ) -> None:
     """Full-text search over captured browser history."""
     settings = get_settings()

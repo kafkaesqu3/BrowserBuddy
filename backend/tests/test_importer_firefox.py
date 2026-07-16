@@ -87,3 +87,16 @@ def test_find_default_profile_absolute_path(tmp_path):
 def test_find_default_profile_missing(tmp_path):
     with pytest.raises(FileNotFoundError):
         find_default_profile(tmp_path)
+
+
+def test_import_skips_negative_visit_date(tmp_path, storage):
+    places = tmp_path / "places.sqlite"
+    make_places(
+        places,
+        [
+            ("https://good.com", "Good", 1720000000000000),
+            ("https://bad-date.com", "Bad", -5),
+        ],
+    )
+    assert import_places(places, storage) == 1
+    assert storage.search_history("bad-date") == []
