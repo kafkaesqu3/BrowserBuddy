@@ -1,4 +1,4 @@
-import type { StorageArea } from "../src/types";
+import type { StorageArea } from "@src/types";
 
 export function fakeStorageArea(): StorageArea & { data: Map<string, unknown> } {
   const data = new Map<string, unknown>();
