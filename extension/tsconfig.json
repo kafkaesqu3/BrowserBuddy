@@ -8,13 +8,7 @@
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
-    "skipLibCheck": true,
-    "ignoreDeprecations": "6.0",
-    "baseUrl": ".",
-    "paths": {
-      "@/*": ["src/*"],
-      "@tests/*": ["tests/*"]
-    }
+    "skipLibCheck": true
   },
   "include": ["src", "tests", "scripts", "vite.config.ts"]
 }

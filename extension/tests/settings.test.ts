@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { DEFAULT_BACKEND_URL, loadSettings, saveSettings } from "@/settings";
-import { fakeStorageArea } from "@tests/fakes";
+import { DEFAULT_BACKEND_URL, loadSettings, saveSettings } from "../src/settings";
+import { fakeStorageArea } from "./fakes";
 
 test("first load generates a stable clientId and defaults", async () => {
   const storage = fakeStorageArea();

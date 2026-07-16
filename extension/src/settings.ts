@@ -1,4 +1,4 @@
-import type { StorageArea } from "@/types";
+import type { StorageArea } from "./types";
 
 export const DEFAULT_BACKEND_URL = "ws://127.0.0.1:8765/ws";
 
