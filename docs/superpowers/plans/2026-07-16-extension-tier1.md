@@ -52,7 +52,7 @@ backend/  (existing — small modifications)
   tests/test_app.py, tests/test_importer_firefox.py, tests/test_cli.py
 ```
 
-Conventions: timestamps are integer ms since epoch UTC everywhere (`Date.now()`). Extension commands run from `extension/`; backend commands from `backend/`. Commit messages: imperative, no AI attribution.
+Conventions: timestamps are integer ms since epoch UTC everywhere (`Date.now()`). Extension commands run from `extension/`; backend commands from `backend/`. Commit messages: imperative, no AI attribution. **Imports: never `../` (enforced by a user-level hook) — tests import sources via the `@src/*` alias (tsconfig `paths` + Vite `resolve.alias`, set up in Task 4); same-directory `./sibling` imports are fine.**
 
 ---
 
@@ -515,7 +515,7 @@ export interface StorageArea {
 - [ ] **Step 2: Write `extension/tests/fakes.ts`**
 
 ```ts
-import type { StorageArea } from "../src/types";
+import type { StorageArea } from "@src/types";
 
 export function fakeStorageArea(): StorageArea & { data: Map<string, unknown> } {
   const data = new Map<string, unknown>();
@@ -542,7 +542,7 @@ export function fakeStorageArea(): StorageArea & { data: Map<string, unknown> } 
 
 ```ts
 import { expect, test } from "vitest";
-import { DEFAULT_BACKEND_URL, loadSettings, saveSettings } from "../src/settings";
+import { DEFAULT_BACKEND_URL, loadSettings, saveSettings } from "@src/settings";
 import { fakeStorageArea } from "./fakes";
 
 test("first load generates a stable clientId and defaults", async () => {
@@ -629,8 +629,8 @@ git commit -m "Add protocol types, settings module, and test fakes"
 
 ```ts
 import { expect, test } from "vitest";
-import { EventQueue, MAX_QUEUE } from "../src/queue";
-import type { EventPayload } from "../src/types";
+import { EventQueue, MAX_QUEUE } from "@src/queue";
+import type { EventPayload } from "@src/types";
 import { fakeStorageArea } from "./fakes";
 
 const tabState = (url: string): EventPayload => ({
@@ -780,7 +780,7 @@ git commit -m "Add durable event queue with seq, ack, drop, and coalescing"
 
 ```ts
 import { expect, test } from "vitest";
-import { TabTracker, type BrowserTab } from "../src/tabs";
+import { TabTracker, type BrowserTab } from "@src/tabs";
 import { fakeStorageArea } from "./fakes";
 
 function clock(start = 1_000_000) {
@@ -1005,7 +1005,7 @@ git commit -m "Add tab tracker with session-persisted active-time accounting"
 
 ```ts
 import { expect, test } from "vitest";
-import { gapFillVisits, visitFromHistoryItem } from "../src/history";
+import { gapFillVisits, visitFromHistoryItem } from "@src/history";
 import { fakeStorageArea } from "./fakes";
 
 test("visitFromHistoryItem converts and rejects unusable items", () => {
@@ -1117,7 +1117,7 @@ Protocol facts this client relies on (all true of the backend as of Task 1): the
 - [ ] **Step 1: Add FakeSocket to `extension/tests/fakes.ts`** (append):
 
 ```ts
-import type { WsLike } from "../src/ws";
+import type { WsLike } from "@src/ws";
 
 export class FakeSocket implements WsLike {
   sent: string[] = [];
@@ -1150,9 +1150,9 @@ export class FakeSocket implements WsLike {
 
 ```ts
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { EventQueue } from "../src/queue";
-import type { EventPayload } from "../src/types";
-import { WsClient } from "../src/ws";
+import { EventQueue } from "@src/queue";
+import type { EventPayload } from "@src/types";
+import { WsClient } from "@src/ws";
 import { FakeSocket, fakeStorageArea } from "./fakes";
 
 const visits = (url: string): EventPayload => ({
@@ -1452,9 +1452,9 @@ git commit -m "Add WebSocket client with auth, drain, heartbeat, and backoff"
 
 ```ts
 import { expect, test } from "vitest";
-import { EventQueue } from "../src/queue";
-import { makeContainerResolver, pushTabSnapshot, pushVisit } from "../src/sync";
-import { TabTracker } from "../src/tabs";
+import { EventQueue } from "@src/queue";
+import { makeContainerResolver, pushTabSnapshot, pushVisit } from "@src/sync";
+import { TabTracker } from "@src/tabs";
 import { fakeStorageArea } from "./fakes";
 
 function deps() {
