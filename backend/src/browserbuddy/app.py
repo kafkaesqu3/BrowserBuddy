@@ -35,6 +35,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.websocket("/ws")
     async def ws_ingest(ws: WebSocket) -> None:
         storage: Storage = app.state.storage
+        # No Origin check by design: the shared secret, not the extension
+        # origin, is the auth (see design spec, portability policy).
         await ws.accept()
         try:
             auth = AuthMessage.model_validate(await ws.receive_json())
@@ -60,21 +62,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # Not JSON / binary frame: unsupported data, close per RFC 6455.
                     await ws.close(code=1003)
                     return
+                if raw == {"type": "ping"}:  # extension heartbeat (keeps MV3 worker alive)
+                    await ws.send_json({"type": "pong"})
+                    continue
                 try:
                     envelope = EventEnvelope.model_validate(raw)
                 except ValidationError as exc:
                     logger.warning("Rejected malformed event: %s", exc)
                     await ws.send_json({"type": "error", "detail": exc.errors()[0]["msg"]})
                     continue
+                # Re-read the cursor per event: a concurrent connection for the
+                # same client_id may have advanced it (stale-socket protection).
+                last_seq = storage.get_last_seq(auth.client_id)
                 if envelope.seq > last_seq:
                     try:
                         _apply_event(storage, envelope)
                         storage.set_last_seq(auth.client_id, envelope.seq)
-                        last_seq = envelope.seq
                     except sqlite3.IntegrityError as exc:
-                        logger.warning(
-                            "Integrity error applying event seq=%d: %s", envelope.seq, exc
-                        )
+                        logger.warning("Integrity error applying event: %s", exc)
                         await ws.send_json({"type": "error", "detail": "integrity error"})
                         continue
                 await ws.send_json({"type": "ack", "seq": envelope.seq})

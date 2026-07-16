@@ -139,3 +139,29 @@ def test_ws_integrity_error_gets_error_frame_and_connection_survives(client, app
         ws.send_json(_tab_state_envelope(2, ["https://c.com"]))
         assert ws.receive_json() == {"type": "ack", "seq": 2}
     assert [t["url"] for t in app.state.storage.list_open_tabs()] == ["https://c.com"]
+
+
+def test_ws_ping_gets_pong(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json({"type": "ping"})
+        assert ws.receive_json() == {"type": "pong"}
+        ws.send_json(_tab_state_envelope(1, ["https://a.com"]))
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+
+
+def test_ws_stale_connection_cannot_apply_old_snapshot(client, app):
+    # Two live sockets for the same client_id: the stale one must not
+    # overwrite newer state, even though its connection-local view is old.
+    with client.websocket_connect("/ws") as stale:
+        _auth(stale, app, client_id="ext-1")
+        with client.websocket_connect("/ws") as fresh:
+            _auth(fresh, app, client_id="ext-1")
+            fresh.send_json(_tab_state_envelope(2, ["https://new.com"]))
+            assert fresh.receive_json() == {"type": "ack", "seq": 2}
+        # Stale socket now replays seq 1: acked (so its client advances)
+        # but NOT applied.
+        stale.send_json(_tab_state_envelope(1, ["https://old.com"]))
+        assert stale.receive_json() == {"type": "ack", "seq": 1}
+    tabs = app.state.storage.list_open_tabs()
+    assert [t["url"] for t in tabs] == ["https://new.com"]
