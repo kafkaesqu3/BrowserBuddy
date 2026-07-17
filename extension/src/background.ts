@@ -44,10 +44,13 @@ async function buildClient(): Promise<WsClient> {
 }
 
 function ensureClient(): Promise<WsClient> {
-  clientPromise ??= buildClient().catch((e) => {
-    clientPromise = null;
-    throw e;
-  });
+  if (!clientPromise) {
+    const p: Promise<WsClient> = buildClient().catch((e) => {
+      if (clientPromise === p) clientPromise = null; // don't clobber a newer build
+      throw e;
+    });
+    clientPromise = p;
+  }
   return clientPromise;
 }
 
@@ -127,6 +130,7 @@ browser.alarms.onAlarm.addListener((alarm) => {
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message === "bb:status") {
     sendResponse({ status: clientStatus });
+    return true;
   }
 });
 
@@ -136,7 +140,7 @@ browser.storage.onChanged.addListener((changes, area) => {
     const old = clientPromise;
     clientPromise = null;
     logged(old?.then((c) => c.disconnect()) ?? Promise.resolve());
-    void ensureClient();
+    logged(ensureClient());
   }
 });
 

@@ -13,19 +13,32 @@ async function init(): Promise<void> {
 }
 
 document.querySelector("#save")!.addEventListener("click", () => {
-  void saveSettings(local, {
+  saveSettings(local, {
     backendUrl: urlInput.value.trim(),
     secret: secretInput.value.trim(),
-  });
+  })
+    .then(() => {
+      statusEl.textContent = "Saved. Reconnecting…";
+      statusEl.className = "";
+    })
+    .catch((e) => {
+      console.warn("BrowserBuddy: save failed", e);
+      statusEl.textContent = "Save failed — check the console.";
+      statusEl.className = "disconnected";
+    });
 });
 
 async function refreshStatus(): Promise<void> {
   try {
-    const reply = (await browser.runtime.sendMessage("bb:status")) as { status: string };
-    statusEl.textContent = `Status: ${reply.status}`;
-    statusEl.className = reply.status;
+    const reply = (await browser.runtime.sendMessage("bb:status")) as
+      | { status?: string }
+      | undefined;
+    const status = reply?.status ?? "unknown";
+    statusEl.textContent = `Status: ${status}`;
+    statusEl.className = status;
   } catch {
     statusEl.textContent = "Status: background unavailable";
+    statusEl.className = "";
   }
 }
 
