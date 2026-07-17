@@ -215,6 +215,35 @@ def test_ws_session_end_without_session_is_idempotent_ack(client, app):
         assert ws.receive_json() == {"type": "ack", "seq": 1}
 
 
+def test_ws_page_capture_without_html_stores_no_blob(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 1}))
+        ws.receive_json()
+        ws.send_json(
+            _envelope(2, {"type": "page_capture", "url": "https://a.com", "visited_at": 2,
+                          "text": "plain text only"})
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+    row = app.state.storage._conn.execute("SELECT html_key FROM page_visits").fetchone()
+    assert row["html_key"] is None
+
+
+def test_ws_duplicate_page_capture_is_acked_not_errored(client, app):
+    capture = {"type": "page_capture", "url": "https://a.com", "visited_at": 2, "text": "t"}
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 1}))
+        ws.receive_json()
+        ws.send_json(_envelope(2, capture))
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+        ws.send_json(_envelope(3, capture))  # same page again: absorbed, not error
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+    assert app.state.storage._conn.execute(
+        "SELECT COUNT(*) FROM page_visits"
+    ).fetchone()[0] == 1
+
+
 def test_ws_stale_connection_cannot_apply_old_snapshot(client, app):
     # With two connections sharing a client_id, the per-event DB read (not a
     # connection-local cache) prevents the stale socket from regressing state.

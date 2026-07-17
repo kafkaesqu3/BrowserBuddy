@@ -18,7 +18,7 @@ from browserbuddy.models import (
     SessionStartEvent,
     TabStateEvent,
 )
-from browserbuddy.storage import Storage
+from browserbuddy.storage import NoActiveSessionError, Storage
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     try:
                         _apply_event(storage, app.state.blobs, auth.client_id, envelope)
                         storage.set_last_seq(auth.client_id, envelope.seq)
-                    except (sqlite3.IntegrityError, LookupError) as exc:
+                    except (sqlite3.IntegrityError, NoActiveSessionError) as exc:
                         logger.warning("Rejected event seq=%d: %s", envelope.seq, exc)
                         await ws.send_json({"type": "error", "detail": str(exc)})
                         continue
@@ -111,7 +111,7 @@ def _apply_event(
     elif isinstance(event, PageCaptureEvent):
         active = storage.get_active_session(client_id)
         if active is None:
-            raise LookupError("page_capture with no active session")
+            raise NoActiveSessionError("page_capture with no active session")
         html_key = blobs.put(event.html.encode()) if event.html else None
         storage.add_page_visit(
             active["id"],

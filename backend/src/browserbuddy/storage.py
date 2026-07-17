@@ -3,6 +3,10 @@ import sqlite3
 from browserbuddy.models import HistoryVisit, TabRecord
 
 
+class NoActiveSessionError(LookupError):
+    """A page capture arrived with no active session (client-side race)."""
+
+
 class Storage:
     """All database operations. One instance per connection; connection owns the lock."""
 
@@ -160,8 +164,8 @@ class Storage:
     ) -> int:
         """Record a captured page. Returns rows inserted (0 on duplicate).
 
-        Raises LookupError for an unknown session_id so the WS loop can send
-        an error frame instead of dying.
+        Raises NoActiveSessionError for an unknown session_id so the WS loop
+        can send an error frame instead of dying.
         """
         # Exists-check outside the txn is fine: sessions are never deleted in
         # v2; the FK constraint is the backstop.
@@ -169,7 +173,7 @@ class Storage:
             "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
         ).fetchone()
         if exists is None:
-            raise LookupError(f"no such session: {session_id}")
+            raise NoActiveSessionError(f"no such session: {session_id}")
         with self._conn:
             cur = self._conn.execute(
                 "INSERT OR IGNORE INTO page_visits"
