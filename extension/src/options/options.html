@@ -1,9 +1,26 @@
 <!doctype html>
 <html>
-  <head><meta charset="utf-8" /><title>BrowserBuddy Options</title></head>
+  <head>
+    <meta charset="utf-8" />
+    <title>BrowserBuddy Options</title>
+    <style>
+      body { font: 14px system-ui; max-width: 480px; margin: 2rem auto; }
+      label { display: block; margin-top: 1rem; font-weight: 600; }
+      input { width: 100%; padding: 0.4rem; box-sizing: border-box; }
+      button { margin-top: 1rem; padding: 0.4rem 1.2rem; }
+      #status { margin-top: 1rem; }
+      .authed { color: green; }
+      .disconnected { color: crimson; }
+    </style>
+  </head>
   <body>
     <h1>BrowserBuddy</h1>
-    <div id="app"></div>
+    <label for="url">Backend WebSocket URL</label>
+    <input id="url" type="text" placeholder="ws://127.0.0.1:8765/ws" />
+    <label for="secret">Shared secret (run <code>buddy secret</code>)</label>
+    <input id="secret" type="password" />
+    <button id="save">Save</button>
+    <p id="status">Status: …</p>
     <script type="module" src="./options.ts"></script>
   </body>
 </html>

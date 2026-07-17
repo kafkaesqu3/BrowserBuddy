@@ -44,7 +44,10 @@ async function buildClient(): Promise<WsClient> {
 }
 
 function ensureClient(): Promise<WsClient> {
-  clientPromise ??= buildClient();
+  clientPromise ??= buildClient().catch((e) => {
+    clientPromise = null;
+    throw e;
+  });
   return clientPromise;
 }
 
@@ -132,7 +135,7 @@ browser.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes["bb:settings"]) {
     const old = clientPromise;
     clientPromise = null;
-    void old?.then((c) => c.disconnect());
+    logged(old?.then((c) => c.disconnect()) ?? Promise.resolve());
     void ensureClient();
   }
 });
