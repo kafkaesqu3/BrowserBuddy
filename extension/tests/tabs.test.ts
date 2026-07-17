@@ -112,3 +112,12 @@ test("wall-clock regression cannot bank negative active time", async () => {
   const records = await tracker.snapshot([tab(1, "https://a.com")], noContainer);
   expect(records[0]!.active_ms).toBe(0); // clamped, not negative (backend rejects ge<0)
 });
+
+test("wall-clock regression during open interval cannot produce negative active_ms in snapshot", async () => {
+  let t = 1_000_000;
+  const tracker = new TabTracker(fakeStorageArea(), () => t);
+  await tracker.recordActivation(1, 1);
+  t -= 5000; // regression while tab is still active (no recordFocusLost)
+  const records = await tracker.snapshot([tab(1, "https://a.com")], noContainer);
+  expect(records[0]!.active_ms).toBe(0); // snapshotImpl clamp, not bank()
+});
