@@ -65,3 +65,37 @@ def test_envelope_tolerates_extra_fields():
         }
     )
     assert isinstance(env.event, TabStateEvent)
+
+
+def test_session_and_page_events_validate():
+    env = EventEnvelope.model_validate(
+        {"v": 1, "seq": 1, "event": {"type": "session_start", "name": "s", "started_at": 5}}
+    )
+    assert env.event.type == "session_start"
+    env = EventEnvelope.model_validate(
+        {"v": 1, "seq": 2, "event": {"type": "session_end", "ended_at": 9}}
+    )
+    assert env.event.type == "session_end"
+    env = EventEnvelope.model_validate(
+        {
+            "v": 1,
+            "seq": 3,
+            "event": {
+                "type": "page_capture",
+                "url": "https://a.com",
+                "visited_at": 7,
+                "text": "body text",
+                "html": "<html></html>",
+            },
+        }
+    )
+    assert env.event.type == "page_capture"
+    assert env.event.title == ""
+    assert env.event.container is None
+
+
+def test_session_start_requires_nonempty_name():
+    with pytest.raises(ValidationError):
+        EventEnvelope.model_validate(
+            {"v": 1, "seq": 1, "event": {"type": "session_start", "name": "", "started_at": 5}}
+        )

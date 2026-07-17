@@ -6,12 +6,16 @@ from pydantic import ValidationError
 
 from browserbuddy import db
 from browserbuddy.auth import get_or_create_secret, verify_secret
+from browserbuddy.blobs import BlobStore
 from browserbuddy.config import Settings, get_settings
 from browserbuddy.models import (
     PROTOCOL_VERSION,
     AuthMessage,
     EventEnvelope,
     HistoryVisitsEvent,
+    PageCaptureEvent,
+    SessionEndEvent,
+    SessionStartEvent,
     TabStateEvent,
 )
 from browserbuddy.storage import Storage
@@ -27,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="BrowserBuddy")
     app.state.storage = Storage(db.connect(settings.db_path))
     app.state.secret = get_or_create_secret(settings.data_dir)
+    app.state.blobs = BlobStore(settings.data_dir / "blobs")
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -78,13 +83,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 last_seq = storage.get_last_seq(auth.client_id)
                 if envelope.seq > last_seq:
                     try:
-                        _apply_event(storage, envelope)
+                        _apply_event(storage, app.state.blobs, auth.client_id, envelope)
                         storage.set_last_seq(auth.client_id, envelope.seq)
-                    except sqlite3.IntegrityError as exc:
-                        logger.warning(
-                            "Integrity error applying event seq=%d: %s", envelope.seq, exc
-                        )
-                        await ws.send_json({"type": "error", "detail": "integrity error"})
+                    except (sqlite3.IntegrityError, LookupError) as exc:
+                        logger.warning("Rejected event seq=%d: %s", envelope.seq, exc)
+                        await ws.send_json({"type": "error", "detail": str(exc)})
                         continue
                 await ws.send_json({"type": "ack", "seq": envelope.seq})
         except WebSocketDisconnect:
@@ -93,11 +96,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def _apply_event(storage: Storage, envelope: EventEnvelope) -> None:
+def _apply_event(
+    storage: Storage, blobs: BlobStore, client_id: str, envelope: EventEnvelope
+) -> None:
     event = envelope.event
     if isinstance(event, TabStateEvent):
         storage.replace_open_tabs(event.tabs)
     elif isinstance(event, HistoryVisitsEvent):
         storage.insert_history_visits(event.visits, source="sync")
+    elif isinstance(event, SessionStartEvent):
+        storage.start_session(client_id, event.name, event.started_at)
+    elif isinstance(event, SessionEndEvent):
+        storage.end_session(client_id, event.ended_at)  # False = already ended; fine
+    elif isinstance(event, PageCaptureEvent):
+        active = storage.get_active_session(client_id)
+        if active is None:
+            raise LookupError("page_capture with no active session")
+        html_key = blobs.put(event.html.encode()) if event.html else None
+        storage.add_page_visit(
+            active["id"],
+            url=event.url,
+            title=event.title,
+            visited_at=event.visited_at,
+            text=event.text,
+            html_key=html_key,
+            container=event.container,
+        )
     else:  # pragma: no cover - unreachable until the union grows
         raise AssertionError(f"unhandled event type: {type(event).__name__}")

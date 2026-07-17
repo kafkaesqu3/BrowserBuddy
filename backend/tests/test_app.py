@@ -158,6 +158,63 @@ def test_ws_ping_with_extra_fields_still_gets_pong(client, app):
         assert ws.receive_json() == {"type": "pong"}
 
 
+def _envelope(seq, event):
+    return {"v": 1, "seq": seq, "event": event}
+
+
+def test_ws_session_lifecycle_and_page_capture(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(1, {"type": "session_start", "name": "deep dive", "started_at": 100})
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+        ws.send_json(
+            _envelope(2, {
+                "type": "page_capture",
+                "url": "https://arxiv.org/abs/7",
+                "title": "Grounded decoding",
+                "visited_at": 150,
+                "text": "grounded decoding methods for agents",
+                "html": "<html><body>grounded decoding</body></html>",
+                "container": "Research",
+            })
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+        ws.send_json(_envelope(3, {"type": "session_end", "ended_at": 200}))
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+    storage = app.state.storage
+    sessions = storage.list_sessions()
+    assert sessions[0]["name"] == "deep dive"
+    assert sessions[0]["page_count"] == 1
+    results = storage.search_pages("grounded")
+    assert results[0]["session_name"] == "deep dive"
+    # html stored content-addressed
+    row = storage._conn.execute("SELECT html_key FROM page_visits").fetchone()
+    assert row["html_key"] is not None
+    assert b"grounded decoding" in app.state.blobs.get(row["html_key"])
+
+
+def test_ws_page_capture_without_session_gets_error_frame(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(1, {"type": "page_capture", "url": "https://a.com", "visited_at": 1})
+        )
+        reply = ws.receive_json()
+        assert reply["type"] == "error"
+        # connection survives; a session_start still works
+        ws.send_json(_envelope(2, {"type": "session_start", "name": "s", "started_at": 2}))
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+
+
+def test_ws_session_end_without_session_is_idempotent_ack(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_end", "ended_at": 5}))
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+
+
 def test_ws_stale_connection_cannot_apply_old_snapshot(client, app):
     # With two connections sharing a client_id, the per-event DB read (not a
     # connection-local cache) prevents the stale socket from regressing state.

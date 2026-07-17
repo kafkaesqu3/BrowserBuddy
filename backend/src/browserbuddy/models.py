@@ -40,6 +40,27 @@ class HistoryVisitsEvent(ProtocolModel):
     visits: list[HistoryVisit]
 
 
+class SessionStartEvent(ProtocolModel):
+    type: Literal["session_start"]
+    name: str = Field(min_length=1)
+    started_at: int = Field(ge=0)
+
+
+class SessionEndEvent(ProtocolModel):
+    type: Literal["session_end"]
+    ended_at: int = Field(ge=0)
+
+
+class PageCaptureEvent(ProtocolModel):
+    type: Literal["page_capture"]
+    url: str = Field(min_length=1)
+    title: str = ""
+    visited_at: int = Field(ge=0)
+    text: str = ""
+    html: str | None = None  # raw DOM HTML; stored content-addressed, not in SQLite
+    container: str | None = None
+
+
 class AuthMessage(ProtocolModel):
     type: Literal["auth"]
     secret: str = Field(min_length=1)
@@ -56,4 +77,6 @@ class EventEnvelope(ProtocolModel):
     # TODO(protocol v2): reject v > PROTOCOL_VERSION in the WS handler
     v: int = Field(ge=1)
     seq: int = Field(ge=1)
-    event: TabStateEvent | HistoryVisitsEvent = Field(discriminator="type")
+    event: (
+        TabStateEvent | HistoryVisitsEvent | SessionStartEvent | SessionEndEvent | PageCaptureEvent
+    ) = Field(discriminator="type")
