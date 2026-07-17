@@ -103,3 +103,99 @@ class Storage:
                 " DO UPDATE SET last_seq = MAX(last_seq, excluded.last_seq)",
                 (client_id, seq),
             )
+
+    # -- sessions ----------------------------------------------------------
+
+    def start_session(self, client_id: str, name: str, started_at: int) -> int:
+        """Open a session; any still-active session for this client is
+        implicitly closed at the new start time (one active session per
+        client by design)."""
+        with self._conn:
+            self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE client_id = ? AND ended_at IS NULL",
+                (started_at, client_id),
+            )
+            cur = self._conn.execute(
+                "INSERT INTO sessions (client_id, name, started_at) VALUES (?, ?, ?)",
+                (client_id, name, started_at),
+            )
+        return cur.lastrowid
+
+    def end_session(self, client_id: str, ended_at: int) -> bool:
+        """Close the active session. Returns False when none is active
+        (idempotent — a replayed session_end is not an error)."""
+        with self._conn:
+            cur = self._conn.execute(
+                "UPDATE sessions SET ended_at = ? WHERE client_id = ? AND ended_at IS NULL",
+                (ended_at, client_id),
+            )
+        return cur.rowcount > 0
+
+    def get_active_session(self, client_id: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM sessions WHERE client_id = ? AND ended_at IS NULL"
+            " ORDER BY started_at DESC LIMIT 1",
+            (client_id,),
+        ).fetchone()
+
+    def add_page_visit(
+        self,
+        session_id: int,
+        *,
+        url: str,
+        title: str,
+        visited_at: int,
+        text: str,
+        html_key: str | None,
+        container: str | None,
+    ) -> int:
+        """Record a captured page. Returns rows inserted (0 on duplicate).
+
+        Raises LookupError for an unknown session_id so the WS loop can send
+        an error frame instead of dying.
+        """
+        exists = self._conn.execute(
+            "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
+        if exists is None:
+            raise LookupError(f"no such session: {session_id}")
+        with self._conn:
+            cur = self._conn.execute(
+                "INSERT OR IGNORE INTO page_visits"
+                " (session_id, url, title, visited_at, text, html_key, container)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, url, title, visited_at, text, html_key, container),
+            )
+        return cur.rowcount
+
+    def list_sessions(self, limit: int = 20) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            """
+            SELECT s.id, s.name, s.started_at, s.ended_at,
+                   COUNT(p.id) AS page_count
+            FROM sessions s LEFT JOIN page_visits p ON p.session_id = s.id
+            GROUP BY s.id ORDER BY s.started_at DESC LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    def search_pages(self, query: str, limit: int = 20) -> list[sqlite3.Row]:
+        """Full-text search over captured page text. Same OR + bm25 semantics
+        as search_history (see that docstring)."""
+        limit = max(1, min(limit, 200))
+        tokens = query.split()
+        if not tokens:
+            return []
+        fts_query = " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
+        return self._conn.execute(
+            """
+            SELECT p.url, p.title, p.visited_at, s.name AS session_name
+            FROM page_fts f
+            JOIN page_visits p ON p.id = f.rowid
+            JOIN sessions s ON s.id = p.session_id
+            WHERE page_fts MATCH ?
+            ORDER BY bm25(page_fts), p.visited_at DESC
+            LIMIT ?
+            """,
+            (fts_query, limit),
+        ).fetchall()

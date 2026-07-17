@@ -64,3 +64,22 @@ def test_fts_sync_on_update_and_delete(tmp_path):
     # Raises SQLITE_CORRUPT_VTAB if the external-content index is out of sync.
     conn.execute("INSERT INTO history_fts(history_fts) VALUES ('integrity-check')")
     conn.close()
+
+
+def test_v2_migration_upgrades_v1_data_intact(tmp_path, monkeypatch):
+    path = tmp_path / "t.db"
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:1])
+    conn = db.connect(path)  # v1 only
+    conn.execute(
+        "INSERT INTO history_entries (url, title, visit_time, source)"
+        " VALUES ('https://keep.me', 'Keep', 1000, 'import')"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.undo()
+    conn = db.connect(path)  # now applies v2 on top of existing v1 data
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 2
+    tables = _tables(conn)
+    assert {"sessions", "page_visits", "page_fts"} <= tables
+    assert conn.execute("SELECT COUNT(*) FROM history_entries").fetchone()[0] == 1
+    conn.close()

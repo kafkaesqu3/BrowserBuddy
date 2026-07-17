@@ -56,6 +56,53 @@ MIGRATIONS: list[str] = [
         last_seq INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # v2: Tier-2 session capture — sessions and page visits (+FTS).
+    """
+    CREATE TABLE sessions (
+        id INTEGER PRIMARY KEY,
+        client_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        UNIQUE (client_id, started_at)
+    );
+
+    CREATE INDEX idx_sessions_active ON sessions (client_id) WHERE ended_at IS NULL;
+
+    CREATE TABLE page_visits (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions (id),
+        url TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        visited_at INTEGER NOT NULL,
+        text TEXT NOT NULL DEFAULT '',
+        html_key TEXT,
+        container TEXT,
+        UNIQUE (session_id, url, visited_at)
+    );
+
+    CREATE VIRTUAL TABLE page_fts USING fts5(
+        url, title, text,
+        content='page_visits', content_rowid='id'
+    );
+
+    CREATE TRIGGER page_ai AFTER INSERT ON page_visits BEGIN
+        INSERT INTO page_fts(rowid, url, title, text)
+        VALUES (new.id, new.url, new.title, new.text);
+    END;
+
+    CREATE TRIGGER page_ad AFTER DELETE ON page_visits BEGIN
+        INSERT INTO page_fts(page_fts, rowid, url, title, text)
+        VALUES ('delete', old.id, old.url, old.title, old.text);
+    END;
+
+    CREATE TRIGGER page_au AFTER UPDATE ON page_visits BEGIN
+        INSERT INTO page_fts(page_fts, rowid, url, title, text)
+        VALUES ('delete', old.id, old.url, old.title, old.text);
+        INSERT INTO page_fts(rowid, url, title, text)
+        VALUES (new.id, new.url, new.title, new.text);
+    END;
+    """,
 ]
 
 
