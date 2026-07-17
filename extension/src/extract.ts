@@ -25,7 +25,9 @@ export function extractPage(doc: Document): ExtractedPage {
     text = "";
   }
   if (!text) {
-    text = doc.body?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const body = doc.body?.cloneNode(true) as HTMLElement | undefined;
+    body?.querySelectorAll("script, style, noscript, template").forEach((el) => el.remove());
+    text = body?.textContent?.replace(/\s+/g, " ").trim() ?? "";
   }
   return { title, text, html };
 }

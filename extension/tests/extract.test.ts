@@ -36,6 +36,20 @@ test("falls back to body text when Readability finds no article", () => {
   expect(result.html).toContain("just a fragment");
 });
 
+test("fallback text excludes script, style, and template content", () => {
+  // The div is `hidden` so Readability sees zero visible text and returns
+  // null, forcing the fallback path. Without it, Readability grabs the div
+  // itself (stripping scripts on the way) and the fallback never runs.
+  const result = extractPage(
+    loadDocument(
+      '<body><div hidden>Dashboard</div><script id="__NEXT_DATA__">{"secret":1}</script>' +
+        "<style>.x{color:red}</style><noscript>enable js</noscript></body>",
+    ),
+  );
+  expect(result.text).toBe("Dashboard");
+  expect(result.html).toContain("__NEXT_DATA__"); // raw HTML keeps everything
+});
+
 test("never throws on a pathological document", () => {
   const result = extractPage(loadDocument("<body></body>"));
   expect(result.text).toBe("");

@@ -11,7 +11,7 @@ import { extractPage } from "./extract";
       .catch(() => undefined); // background asleep/unreachable: drop silently
   };
   if (document.readyState === "complete") {
-    send();
+    setTimeout(send, 500);
   } else {
     addEventListener("load", () => setTimeout(send, 500), { once: true });
   }
