@@ -56,8 +56,7 @@ export class TabTracker {
     state.activeSince = null;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- windowId reserved for future window-scoped accounting
-  async recordActivation(tabId: number, windowId: number): Promise<void> {
+  async recordActivation(tabId: number, _windowId: number): Promise<void> {
     const state = await this.load();
     this.bank(state);
     const entry = this.ensure(state, tabId);
