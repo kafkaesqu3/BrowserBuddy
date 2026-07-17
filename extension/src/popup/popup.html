@@ -1,3 +1,33 @@
 <!doctype html>
-<html><head><meta charset="utf-8" /><title>BrowserBuddy</title></head>
-<body><p>Popup UI in Task 10.</p></body></html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>BrowserBuddy</title>
+    <style>
+      body { font: 13px system-ui; width: 280px; padding: 0.75rem; }
+      h1 { font-size: 14px; margin: 0 0 0.5rem; }
+      input { width: 100%; padding: 0.35rem; box-sizing: border-box; }
+      button { margin: 0.5rem 0.25rem 0 0; padding: 0.3rem 0.9rem; }
+      #session { margin: 0.5rem 0; font-weight: 600; }
+      .recording { color: #c0392b; }
+      .paused { color: #7f8c8d; }
+      #connection { color: #555; margin-top: 0.5rem; font-size: 12px; }
+      .hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <h1>BrowserBuddy</h1>
+    <div id="idle">
+      <input id="name" type="text" placeholder="Session name (what are you researching?)" />
+      <button id="start">Start session</button>
+    </div>
+    <div id="active" class="hidden">
+      <div id="session"></div>
+      <button id="pause">Pause</button>
+      <button id="resume" class="hidden">Resume</button>
+      <button id="stop">Stop</button>
+    </div>
+    <div id="connection">…</div>
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>
