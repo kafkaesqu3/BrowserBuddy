@@ -110,9 +110,11 @@ indicator; pausable. While active:
   `chrome-extension://` origins). Versioned event schema with sequence
   numbers and acks (idempotent, at-least-once delivery) so extension and
   backend evolve independently and reconnects are safe.
-  **Sensitive-content firewall at ingest:** built-in regexes (private keys,
-  cloud credentials, API tokens) reject matching page captures before
-  storage — full-text session capture must not archive secrets.
+  **Sensitive-content firewall at ingest** (roadmap, deferred by user
+  decision 2026-07-17): built-in regexes (private keys, cloud credentials,
+  API tokens) reject matching page captures before storage — full-text
+  session capture must not archive secrets. Not in the initial session-
+  capture milestone; scheduled before the tool leaves single-user use.
 - **Storage** — single SQLite DB (WAL mode): `sessions`, `page_visits`,
   `nav_edges`, `outbound_links`, `tab_snapshots`, `history_entries`. FTS5 for
   full text; `sqlite-vec` for embeddings (one file, no second DB). Screenshots
@@ -243,6 +245,11 @@ Generated on session end, stored as markdown, regenerable:
 4. Recall agent + hybrid search + CLI + MCP server ← v1 success criterion #1
 5. Session digests ← v1 success criterion #2
 6. Web dashboard
+
+## Roadmap (deferred, committed)
+
+- **Sensitive-content firewall at ingest** — deferred from the session-capture
+  milestone by user decision (2026-07-17); implement before broadening use.
 
 ## Out of scope for v1
 
