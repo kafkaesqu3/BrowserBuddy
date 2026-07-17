@@ -96,5 +96,5 @@ test("ack concurrent with enqueue does not lose the new event", async () => {
   await Promise.all([q.ack(1), q.enqueue(visits("https://c.com"))]);
   const seqs = (await q.pending()).map((e) => e.seq);
   expect(seqs).toContain(3); // event c must not be lost
-  expect(seqs).not.toContain(1); // ack must not be lost either (the pre-fix race resurrected seq 1)
+  expect(seqs).not.toContain(1); // and the stale ack write must not resurrect already-acked seqs
 });
