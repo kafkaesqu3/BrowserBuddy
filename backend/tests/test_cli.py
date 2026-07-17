@@ -115,3 +115,41 @@ def test_import_history_corrupt_db_fails_clearly(tmp_path):
     result = runner.invoke(app, ["import-history", "--profile", str(profile)], env=_env(tmp_path))
     assert result.exit_code == 1
     assert "corrupt" in result.output.lower()
+
+
+def _seed_session(tmp_path):
+    from browserbuddy import db
+    from browserbuddy.storage import Storage
+
+    conn = db.connect(tmp_path / "buddy.db")
+    s = Storage(conn)
+    sid = s.start_session("ext-1", "vector research", started_at=1720000000000)
+    s.add_page_visit(
+        sid, url="https://arxiv.org/abs/8", title="HNSW explained",
+        visited_at=1720000001000, text="hierarchical navigable small worlds",
+        html_key=None, container=None,
+    )
+    s.end_session("ext-1", ended_at=1720000100000)
+    conn.close()
+
+
+def test_sessions_lists_sessions(tmp_path):
+    _seed_session(tmp_path)
+    result = runner.invoke(app, ["sessions"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "vector research" in result.output
+    assert "1 page" in result.output
+
+
+def test_sessions_empty(tmp_path):
+    result = runner.invoke(app, ["sessions"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "No sessions" in result.output
+
+
+def test_search_includes_session_pages(tmp_path):
+    _seed_session(tmp_path)
+    result = runner.invoke(app, ["search", "navigable"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "https://arxiv.org/abs/8" in result.output
+    assert "vector research" in result.output

@@ -68,23 +68,49 @@ def import_history(
 
 
 @app.command()
+def sessions() -> None:
+    """List research sessions (newest first)."""
+    conn = db.connect(get_settings().db_path)
+    try:
+        rows = Storage(conn).list_sessions()
+    finally:
+        conn.close()
+    if not rows:
+        typer.echo("No sessions recorded yet.")
+        return
+    for row in rows:
+        state = "active" if row["ended_at"] is None else _fmt_time(row["ended_at"])
+        pages = f"{row['page_count']} page" + ("" if row["page_count"] == 1 else "s")
+        typer.echo(f"{_fmt_time(row['started_at'])} → {state}  {row['name']}  ({pages})")
+
+
+@app.command()
 def search(
     query: str,
     limit: int = typer.Option(20, help="Maximum results (capped at 200)."),
 ) -> None:
-    """Full-text search over captured browser history."""
-    settings = get_settings()
-    conn = db.connect(settings.db_path)
+    """Full-text search over history and captured session pages."""
+    conn = db.connect(get_settings().db_path)
     try:
-        results = Storage(conn).search_history(query, limit=limit)
+        storage = Storage(conn)
+        history = storage.search_history(query, limit=limit)
+        pages = storage.search_pages(query, limit=limit)
     finally:
         conn.close()
-    if not results:
+    if not history and not pages:
         typer.echo("No results.")
         return
-    for row in results:
+    for row in history:
         typer.echo(f"{_fmt_time(row['visit_time'])}  {row['title'] or '(untitled)'}")
         typer.echo(f"                  {row['url']}")
+    if pages:
+        typer.echo("-- session pages --")
+        for row in pages:
+            typer.echo(
+                f"{_fmt_time(row['visited_at'])}  {row['title'] or '(untitled)'}"
+                f"  [{row['session_name']}]"
+            )
+            typer.echo(f"                  {row['url']}")
 
 
 @app.command()
