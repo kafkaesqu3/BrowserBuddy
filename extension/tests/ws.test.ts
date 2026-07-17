@@ -112,6 +112,73 @@ test("reconnects with exponential backoff and resets after auth", async () => {
   expect(sockets).toHaveLength(4); // back to base delay
 });
 
+test("drain suspended across a reconnect never sends on the dead socket", async () => {
+  const { sockets, queue, client } = setup();
+  client.connect();
+  const s0 = sockets[0]!;
+  s0.open();
+  s0.receive({ type: "auth_ok", last_seq: 0 });
+  await vi.advanceTimersByTimeAsync(0);
+  await queue.enqueue(visits("https://a.com")); // seq 1
+
+  // Gate the next pending() read so the drain suspends mid-flight.
+  const realPending = queue.pending.bind(queue);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  vi.spyOn(queue, "pending").mockImplementationOnce(async () => {
+    await gate;
+    return realPending();
+  });
+
+  const stalled = client.notifyEnqueued(); // suspends inside drain
+  s0.close(); // connection dies while the drain is parked
+  release();
+  await stalled; // stale drain resumes against the dead connection
+
+  expect(s0.sentJson().slice(1)).toEqual([]); // nothing sent after the auth frame
+
+  await vi.advanceTimersByTimeAsync(1000); // reconnect at base delay
+  const s1 = sockets[1]!;
+  s1.open();
+  s1.receive({ type: "auth_ok", last_seq: 0 });
+  await vi.advanceTimersByTimeAsync(0); // new connection drains
+  const sent = s1.sentJson().slice(1) as { seq: number }[];
+  expect(sent.map((e) => e.seq)).toEqual([1]); // event arrives via the new socket
+  s1.receive({ type: "ack", seq: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await queue.pending()).toEqual([]);
+});
+
+test("unknown server frames are ignored without breaking correspondence", async () => {
+  const { sockets, queue, client } = setup();
+  client.connect();
+  const s = sockets[0]!;
+  s.open();
+  s.receive({ type: "auth_ok", last_seq: 0 });
+  await vi.advanceTimersByTimeAsync(0);
+  s.receive({ type: "wat" }); // unknown frame: must not throw or shift inflight
+  await queue.enqueue(visits("https://a.com")); // seq 1
+  await client.notifyEnqueued();
+  s.receive({ type: "ack", seq: 1 });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await queue.pending()).toEqual([]); // send/ack cycle still lines up
+});
+
+test("concurrent notifyEnqueued calls do not send duplicate envelopes", async () => {
+  const { sockets, queue, client } = setup();
+  client.connect();
+  const s = sockets[0]!;
+  s.open();
+  s.receive({ type: "auth_ok", last_seq: 0 });
+  await vi.advanceTimersByTimeAsync(0);
+  await queue.enqueue(visits("https://a.com")); // seq 1
+  await Promise.all([client.notifyEnqueued(), client.notifyEnqueued()]);
+  const envelopes = s.sentJson().slice(1) as { seq: number }[];
+  expect(envelopes.map((e) => e.seq)).toEqual([1]);
+});
+
 test("disconnect() stops reconnection (settings changed)", async () => {
   const { sockets, client } = setup();
   client.connect();

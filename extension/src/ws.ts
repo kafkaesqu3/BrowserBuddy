@@ -41,6 +41,7 @@ export class WsClient {
   constructor(private opts: WsClientOptions) {}
 
   connect(): void {
+    clearTimeout(this.reconnectTimer);
     if (this.socket || this.stopped) return;
     this.setStatus("connecting");
     const socket = this.opts.makeSocket(this.opts.url);
@@ -93,13 +94,25 @@ export class WsClient {
         this.inflight.shift();
         break;
       }
+      default: {
+        // frame is `never` here per ServerFrame, but the wire can carry
+        // anything; log and ignore without touching the inflight FIFO.
+        console.warn("BrowserBuddy: unknown server frame", frame satisfies never);
+        break;
+      }
     }
   }
 
   private async drain(): Promise<void> {
     const socket = this.socket;
     if (!socket || this.status !== "authed") return;
-    for (const envelope of await this.opts.queue.pending()) {
+    const pending = await this.opts.queue.pending();
+    // Revalidate: a reconnect may have replaced the socket while we awaited.
+    // Sending on the dead socket would push a phantom inflight entry and bump
+    // sentUpTo, making the new connection skip the event and misattribute the
+    // next server error frame.
+    if (this.socket !== socket || this.status !== "authed") return;
+    for (const envelope of pending) {
       if (envelope.seq <= this.sentUpTo) continue;
       socket.send(JSON.stringify(envelope));
       this.inflight.push(envelope.seq);
@@ -113,7 +126,8 @@ export class WsClient {
     // the interval only needs to live as long as the socket does — WS traffic
     // is itself what keeps the MV3 worker alive.
     this.heartbeat = setInterval(() => {
-      this.socket?.send(JSON.stringify({ type: "ping" }));
+      if (!this.socket) return; // never push a marker without a matching send
+      this.socket.send(JSON.stringify({ type: "ping" }));
       this.inflight.push("ping");
     }, this.opts.heartbeatMs ?? 20_000);
   }
