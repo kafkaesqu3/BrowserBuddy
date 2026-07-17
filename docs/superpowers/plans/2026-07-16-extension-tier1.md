@@ -1846,6 +1846,34 @@ git commit -m "Document extension quick start"
 
 ---
 
+## Follow-ups for Milestone 3 (session capture)
+
+Recorded from the final whole-branch review (2026-07-17); none block this
+milestone:
+
+1. **Auth-failure UX:** `WsLike.onclose` carries no close code, so a 4401
+   (wrong secret) is indistinguishable from backend-down — infinite silent
+   backoff; options page shows only "disconnected". Surface the close code
+   before the interface calcifies.
+2. **First-save clientId race:** options page and background can both
+   generate a clientId concurrently on a fresh install; converges via the
+   onChanged rebuild, but deterministic first-write would be cleaner.
+3. **AMO `data_collection_permissions`:** the one web-ext lint warning —
+   becomes a hard AMO requirement; needs `strict_min_version >= 140` to
+   declare, so revisit when bumping the Firefox floor. (Zero-warnings
+   justification: unfixable at our current min version; submission-time
+   concern only.)
+4. **Chrome options page:** `options.ts` lacks the `globalThis.browser ??=
+   chrome` alias background.ts has — the emitted dist/chrome options page
+   throws ReferenceError. Part of the deferred Chrome port.
+5. Minor code hardenings for early M3: `Math.max(0, …)` clamp on active_ms
+   banking (wall-clock regression can poison tab_state via the backend's
+   ge=0 validation — do this one first); null `onmessage`/`onopen` in
+   teardownSocket; `logged()` on the onFocusChanged/alarms.get chains;
+   idle-API integration so focused-but-away time doesn't count as active;
+   EventQueue full-array rewrite per enqueue may bottleneck at M3 event
+   rates (consider chunked storage keys).
+
 ## Self-review notes
 
 - **Spec coverage (this milestone):** Tier-1 ambient awareness ✓ (tabs incl. group/container/active-time; history live + gap-fill); ephemeral background ✓ (state in `storage.session`/`storage.local`, `alarms` for the periodic net, listeners top-level, heartbeat < 30s with in-code rationale); seq/ack + buffering ✓ (durable queue, coalesced snapshots, capped buffer); per-target manifests + `gecko.id` ✓; Firefox enhancement layer feature-detected ✓ (`makeContainerResolver`); backend follow-ups ✓ (Tasks 1–2 close both Important items from the M1 final review, plus the origin-decision comment and `--limit` help minors). Deferred by design: popup/badges, sessions, content scripts, screenshots (M3+); Origin allowlist stays deferred (recorded in spec).
