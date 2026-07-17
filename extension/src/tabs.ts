@@ -28,10 +28,20 @@ const EMPTY: TrackerState = { activeTabId: null, activeSince: null, perTab: {} }
 /** Active-time accounting. State lives in storage.session so it survives
  * background-worker suspension but resets with the browser (like tabs do). */
 export class TabTracker {
+  // Same non-transactional-storage hazard as EventQueue: interleaved listeners
+  // must not race the read-modify-write.
+  private mutex: Promise<unknown> = Promise.resolve();
+
   constructor(
     private session: StorageArea,
     private now: () => number,
   ) {}
+
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutex.then(fn, fn);
+    this.mutex = next.catch(() => undefined);
+    return next;
+  }
 
   private async load(): Promise<TrackerState> {
     const stored = (await this.session.get(STATE_KEY))[STATE_KEY] as TrackerState | undefined;
@@ -56,24 +66,44 @@ export class TabTracker {
     state.activeSince = null;
   }
 
-  async recordActivation(tabId: number, _windowId: number): Promise<void> {
+  /** Precondition (enforced by the background wiring, not here): call only for
+   * the focused window's active tab — tabs.onActivated fires for background
+   * windows too, and recordFocusLost must run when window focus leaves the
+   * browser. */
+  recordActivation(tabId: number, _windowId: number): Promise<void> {
+    return this.serialize(() => this.recordActivationImpl(tabId));
+  }
+
+  private async recordActivationImpl(tabId: number): Promise<void> {
     const state = await this.load();
     this.bank(state);
     const entry = this.ensure(state, tabId);
-    entry.last_activated_at = this.now();
+    const t = this.now();
+    entry.last_activated_at = t;
     state.activeTabId = tabId;
-    state.activeSince = this.now();
+    state.activeSince = t;
     await this.store(state);
   }
 
-  async recordFocusLost(): Promise<void> {
+  recordFocusLost(): Promise<void> {
+    return this.serialize(() => this.recordFocusLostImpl());
+  }
+
+  private async recordFocusLostImpl(): Promise<void> {
     const state = await this.load();
     this.bank(state);
     await this.store(state);
   }
 
   /** Build TabRecords for all live tabs; prune accounting for closed ones. */
-  async snapshot(
+  snapshot(
+    tabs: BrowserTab[],
+    containerName: (cookieStoreId?: string) => Promise<string | null>,
+  ): Promise<TabRecord[]> {
+    return this.serialize(() => this.snapshotImpl(tabs, containerName));
+  }
+
+  private async snapshotImpl(
     tabs: BrowserTab[],
     containerName: (cookieStoreId?: string) => Promise<string | null>,
   ): Promise<TabRecord[]> {

@@ -71,6 +71,27 @@ test("snapshot prunes state for closed tabs and fills metadata", async () => {
   expect(JSON.stringify(stored)).not.toContain("99");
 });
 
+test("interleaved snapshot and activation do not lose banked time", async () => {
+  const c = clock();
+  const session = fakeStorageArea();
+  const tracker = new TabTracker(session, c.now);
+  await tracker.recordActivation(1, 1);
+  c.advance(5000);
+  // A snapshot (2s debounce) races a tab switch; the switch's banking must survive.
+  await Promise.all([
+    tracker.snapshot([tab(1, "https://a.com"), tab(2, "https://b.com")], noContainer),
+    tracker.recordActivation(2, 1),
+  ]);
+  c.advance(3000);
+  const records = await tracker.snapshot(
+    [tab(1, "https://a.com"), tab(2, "https://b.com")],
+    noContainer,
+  );
+  const byId = new Map(records.map((r) => [r.tab_id, r]));
+  expect(byId.get(1)!.active_ms).toBe(5000); // banked at the switch, not double-counted
+  expect(byId.get(2)!.active_ms).toBe(3000);
+});
+
 test("tabs without id or url are skipped; groupId -1 maps to null", async () => {
   const c = clock();
   const tracker = new TabTracker(fakeStorageArea(), c.now);

@@ -63,8 +63,14 @@ test("enqueue coalesces pending tab_state (only latest snapshot matters)", async
 
 test("queue is capped: oldest events drop beyond MAX_QUEUE", async () => {
   const storage = fakeStorageArea();
+  // Seed a full queue directly: enqueueing MAX_QUEUE events one by one is
+  // O(n^2) now that the fake clones stored values like the real API does.
+  const seeded = Array.from({ length: MAX_QUEUE }, (_, i) => ({
+    v: 1, seq: i + 1, event: visits(`https://p${i}.com`),
+  }));
+  await storage.set({ "bb:seq": MAX_QUEUE, "bb:queue": seeded });
   const q = new EventQueue(storage);
-  for (let i = 0; i < MAX_QUEUE + 10; i++) await q.enqueue(visits(`https://p${i}.com`));
+  for (let i = 0; i < 10; i++) await q.enqueue(visits(`https://q${i}.com`)); // seq 5001..5010
   const pending = await q.pending();
   expect(pending).toHaveLength(MAX_QUEUE);
   expect(pending[0]!.seq).toBe(11); // 10 oldest dropped
