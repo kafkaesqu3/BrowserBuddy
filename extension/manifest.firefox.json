@@ -1,5 +1,8 @@
 {
   "permissions": ["tabs", "history", "storage", "alarms", "contextualIdentities", "cookies"],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
   "background": { "scripts": ["background.js"], "type": "module" },
   "browser_specific_settings": {
     "gecko": { "id": "browserbuddy@tulis.dev", "strict_min_version": "128.0" }
