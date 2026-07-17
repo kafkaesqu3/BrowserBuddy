@@ -19,9 +19,21 @@ export interface TabRecord {
   active_ms: number;
 }
 
+export interface PageCapture {
+  url: string;
+  title: string;
+  visited_at: number;
+  text: string;
+  html: string | null;
+  container: string | null;
+}
+
 export type EventPayload =
   | { type: "tab_state"; tabs: TabRecord[] }
-  | { type: "history_visits"; visits: HistoryVisit[] };
+  | { type: "history_visits"; visits: HistoryVisit[] }
+  | { type: "session_start"; name: string; started_at: number }
+  | { type: "session_end"; ended_at: number }
+  | ({ type: "page_capture" } & PageCapture);
 
 export interface EventEnvelope {
   v: number;

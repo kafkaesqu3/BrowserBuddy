@@ -1,0 +1,73 @@
+import type { EventPayload, StorageArea } from "./types";
+
+export interface SessionState {
+  name: string;
+  startedAt: number;
+  status: "recording" | "paused";
+}
+
+const KEY = "bb:session";
+
+/** Explicit research-session state. Persisted in storage.local so a session
+ * survives worker death AND browser restart (deliberate: the user said
+ * "record" — only the user saying stop ends it). Pause/resume are
+ * client-side only: a paused session sends no page captures; the backend
+ * session stays open. Mutations are mutex-serialized like the other
+ * storage-backed modules. */
+export class SessionManager {
+  private mutex: Promise<unknown> = Promise.resolve();
+
+  constructor(
+    private local: StorageArea,
+    private now: () => number,
+  ) {}
+
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutex.then(fn, fn);
+    this.mutex = next.catch(() => undefined);
+    return next;
+  }
+
+  async current(): Promise<SessionState | null> {
+    const stored = (await this.local.get(KEY))[KEY] as SessionState | undefined;
+    return stored ?? null;
+  }
+
+  start(name: string): Promise<{ event: EventPayload }> {
+    return this.serialize(async () => {
+      const startedAt = this.now();
+      const state: SessionState = { name, startedAt, status: "recording" };
+      await this.local.set({ [KEY]: state });
+      // Starting over an active session is fine: the backend implicitly
+      // closes the previous session at the new start time.
+      return { event: { type: "session_start", name, started_at: startedAt } };
+    });
+  }
+
+  pause(): Promise<void> {
+    return this.serialize(async () => {
+      const state = await this.current();
+      if (state?.status === "recording") {
+        await this.local.set({ [KEY]: { ...state, status: "paused" } });
+      }
+    });
+  }
+
+  resume(): Promise<void> {
+    return this.serialize(async () => {
+      const state = await this.current();
+      if (state?.status === "paused") {
+        await this.local.set({ [KEY]: { ...state, status: "recording" } });
+      }
+    });
+  }
+
+  stop(): Promise<{ event: EventPayload } | null> {
+    return this.serialize(async () => {
+      const state = await this.current();
+      if (!state) return null;
+      await this.local.remove(KEY);
+      return { event: { type: "session_end", ended_at: this.now() } };
+    });
+  }
+}
