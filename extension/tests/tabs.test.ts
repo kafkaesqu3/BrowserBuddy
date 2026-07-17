@@ -102,3 +102,13 @@ test("tabs without id or url are skipped; groupId -1 maps to null", async () => 
   expect(records).toHaveLength(1);
   expect(records[0]!.group_id).toBeNull();
 });
+
+test("wall-clock regression cannot bank negative active time", async () => {
+  let t = 1_000_000;
+  const tracker = new TabTracker(fakeStorageArea(), () => t);
+  await tracker.recordActivation(1, 1);
+  t -= 5000; // clock went backwards (NTP correction)
+  await tracker.recordFocusLost(); // banks now() - activeSince = -5000 without a clamp
+  const records = await tracker.snapshot([tab(1, "https://a.com")], noContainer);
+  expect(records[0]!.active_ms).toBe(0); // clamped, not negative (backend rejects ge<0)
+});

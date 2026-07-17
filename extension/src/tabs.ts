@@ -61,7 +61,10 @@ export class TabTracker {
   /** Bank active time for the previously active tab. */
   private bank(state: TrackerState): void {
     if (state.activeTabId === null || state.activeSince === null) return;
-    this.ensure(state, state.activeTabId).active_ms += this.now() - state.activeSince;
+    // Clamp: a wall-clock regression must not produce negative active_ms —
+    // the backend's ge=0 validation would reject every subsequent tab_state
+    // containing this tab.
+    this.ensure(state, state.activeTabId).active_ms += Math.max(0, this.now() - state.activeSince);
     state.activeTabId = null;
     state.activeSince = null;
   }
@@ -116,7 +119,7 @@ export class TabTracker {
       const entry = this.ensure(state, tab.id);
       let activeMs = entry.active_ms;
       if (state.activeTabId === tab.id && state.activeSince !== null) {
-        activeMs += this.now() - state.activeSince; // include the open interval
+        activeMs += Math.max(0, this.now() - state.activeSince); // include the open interval
       }
       records.push({
         tab_id: tab.id,

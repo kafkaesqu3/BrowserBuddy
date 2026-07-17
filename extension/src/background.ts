@@ -91,13 +91,15 @@ browser.tabs.onUpdated.addListener((_id, changeInfo) => {
 });
 browser.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === browser.windows.WINDOW_ID_NONE) {
-    void tracker.recordFocusLost().then(scheduleSnapshot);
+    logged(tracker.recordFocusLost().then(scheduleSnapshot));
   } else {
-    void browser.tabs.query({ active: true, windowId }).then(([tab]) => {
-      if (tab?.id !== undefined) {
-        void tracker.recordActivation(tab.id, windowId).then(scheduleSnapshot);
-      }
-    });
+    logged(
+      browser.tabs.query({ active: true, windowId }).then(([tab]) => {
+        if (tab?.id !== undefined) {
+          return tracker.recordActivation(tab.id, windowId).then(scheduleSnapshot);
+        }
+      }),
+    );
   }
 });
 
@@ -107,9 +109,11 @@ browser.history.onVisited.addListener((item) => {
 
 // Periodic safety net: refresh active_ms, reconnect if needed, fill gaps.
 // Only create the alarm if absent so worker wakeups don't reset its phase.
-void browser.alarms.get("bb-sync").then((existing) => {
-  if (!existing) browser.alarms.create("bb-sync", { periodInMinutes: 1 });
-});
+logged(
+  browser.alarms.get("bb-sync").then((existing) => {
+    if (!existing) browser.alarms.create("bb-sync", { periodInMinutes: 1 });
+  }),
+);
 browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== "bb-sync") return;
   logged(

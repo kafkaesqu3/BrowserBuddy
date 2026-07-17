@@ -157,6 +157,8 @@ export class WsClient {
     clearInterval(this.heartbeat);
     if (this.socket) {
       this.socket.onclose = null; // avoid re-entrant handleClose from close()
+      this.socket.onmessage = null; // late frames must not touch successor state
+      this.socket.onopen = null;
       this.socket.close();
       this.socket = null;
     }

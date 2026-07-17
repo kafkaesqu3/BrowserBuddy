@@ -207,3 +207,19 @@ test("disconnect() stops reconnection (settings changed)", async () => {
   await vi.advanceTimersByTimeAsync(120_000);
   expect(sockets).toHaveLength(1);
 });
+
+test("frames delivered after teardown do not touch successor state", async () => {
+  const { sockets, queue, client } = setup();
+  client.connect();
+  const s0 = sockets[0]!;
+  s0.open();
+  s0.receive({ type: "auth_ok", last_seq: 0 });
+  await vi.advanceTimersByTimeAsync(0);
+  client.disconnect(); // teardown must detach s0's handlers entirely
+  expect(s0.onmessage).toBeNull();
+  expect(s0.onopen).toBeNull();
+  await queue.enqueue(visits("https://a.com"));
+  s0.receive({ type: "ack", seq: 1 }); // stray late frame: must be a no-op
+  await vi.advanceTimersByTimeAsync(0);
+  expect(await queue.pending()).toHaveLength(1); // not acked by a dead socket
+});
