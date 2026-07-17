@@ -118,45 +118,61 @@ interface SessionCommand {
   name?: string;
 }
 
+// One mutex for lifecycle side effects (capture registration + badge): the
+// wake-reconciliation IIFE and popup commands race on cold starts otherwise
+// (a popup click is often what wakes the worker).
+let lifecycleMutex: Promise<unknown> = Promise.resolve();
+function serializeLifecycle<T>(fn: () => Promise<T>): Promise<T> {
+  const next = lifecycleMutex.then(fn, fn);
+  lifecycleMutex = next.catch(() => undefined);
+  return next;
+}
+
+/** Derive registration + badge from persisted session state (idempotent). */
+async function syncCaptureState(): Promise<void> {
+  const state = await sessionManager.current();
+  if (state?.status === "recording") {
+    await registerCapture();
+  } else {
+    await unregisterCapture();
+  }
+  setBadge(state?.status ?? null);
+}
+
 async function handleSessionCommand(
   cmd: SessionCommand,
 ): Promise<{ session: unknown; connection: string }> {
-  switch (cmd.action) {
-    case "start": {
-      // `||` not `??` — an empty/whitespace name must fall back,
-      // or the backend's min_length=1 validation error-drops the event and
-      // every capture behind it.
-      const name = cmd.name?.trim() || "untitled session";
-      const { event } = await sessionManager.start(name);
-      await queue.enqueue(event);
-      await (await ensureClient()).notifyEnqueued();
-      await registerCapture();
-      setBadge("recording");
-      break;
-    }
-    case "pause":
-      await sessionManager.pause();
-      await unregisterCapture(); // paused = capture fully off
-      setBadge("paused");
-      break;
-    case "resume":
-      await sessionManager.resume();
-      await registerCapture();
-      setBadge("recording");
-      break;
-    case "stop": {
-      const result = await sessionManager.stop();
-      await unregisterCapture();
-      setBadge(null);
-      if (result) {
-        await queue.enqueue(result.event);
+  await serializeLifecycle(async () => {
+    switch (cmd.action) {
+      case "start": {
+        // `||` not `??`: an empty/whitespace name must fall back, or the
+        // backend's min_length=1 validation error-drops the event and every
+        // capture behind it.
+        const name = cmd.name?.trim() || "untitled session";
+        const { event } = await sessionManager.start(name);
+        await queue.enqueue(event);
         await (await ensureClient()).notifyEnqueued();
+        break;
       }
-      break;
+      case "pause":
+        await sessionManager.pause();
+        break;
+      case "resume":
+        await sessionManager.resume();
+        break;
+      case "stop": {
+        const result = await sessionManager.stop();
+        if (result) {
+          await queue.enqueue(result.event);
+          await (await ensureClient()).notifyEnqueued();
+        }
+        break;
+      }
+      case "status":
+        break;
     }
-    case "status":
-      break;
-  }
+    await syncCaptureState();
+  });
   return { session: await sessionManager.current(), connection: clientStatus };
 }
 
@@ -251,8 +267,12 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false; // no reply — content script fire-and-forget
   }
   if (msg?.type === "bb:session") {
-    void handleSessionCommand(msg as SessionCommand).then(sendResponse);
-    return true; // async reply
+    handleSessionCommand(msg as SessionCommand).then(sendResponse, async (e) => {
+      console.warn("BrowserBuddy: session command failed", e);
+      const session = await sessionManager.current().catch(() => null);
+      sendResponse({ session, connection: clientStatus });
+    });
+    return true; // async reply — popup must never hang
   }
   return false;
 });
@@ -269,16 +289,6 @@ browser.storage.onChanged.addListener((changes, area) => {
 
 void ensureClient();
 
-// Reconcile capture registration with persisted session state on wake:
-// a browser restart keeps the session recording (user never said stop).
-logged(
-  (async () => {
-    const state = await sessionManager.current();
-    if (state?.status === "recording") {
-      await registerCapture();
-    } else {
-      await unregisterCapture();
-    }
-    setBadge(state?.status ?? null);
-  })(),
-);
+// Reconcile capture registration + badge with persisted session state on
+// wake: a browser restart keeps the session recording (user never said stop).
+logged(serializeLifecycle(syncCaptureState));
