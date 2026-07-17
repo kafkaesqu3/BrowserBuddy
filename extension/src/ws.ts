@@ -74,11 +74,7 @@ export class WsClient {
         this.sentUpTo = frame.last_seq;
         await this.opts.queue.ack(frame.last_seq);
         this.setStatus("authed");
-        // Defer heartbeat registration by one fake-timer tick so that
-        // vi.runOnlyPendingTimersAsync() (which uses runToLastAsync and only
-        // ticks to the last *currently* pending timer) flushes only the 0ms
-        // sentinel and does not immediately advance 20 s to fire the interval.
-        setTimeout(() => this.startHeartbeat(), 0);
+        this.startHeartbeat();
         await this.drain();
         break;
       }

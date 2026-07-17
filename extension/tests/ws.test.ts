@@ -39,7 +39,7 @@ test("connect authenticates, acks server-known seqs, drains the rest", async () 
   s.open();
   expect(s.sentJson()[0]).toEqual({ type: "auth", secret: "s3cret", client_id: "ext-test" });
   s.receive({ type: "auth_ok", last_seq: 2 });
-  await vi.runOnlyPendingTimersAsync();
+  await vi.advanceTimersByTimeAsync(0);
   expect(client.status).toBe("authed");
   expect((await queue.pending()).map((e) => e.seq)).toEqual([3]); // 1,2 pruned
   const envelopes = s.sentJson().slice(1) as { seq: number }[];
@@ -54,10 +54,10 @@ test("ack prunes; error drops exactly the corresponding envelope", async () => {
   const s = sockets[0]!;
   s.open();
   s.receive({ type: "auth_ok", last_seq: 0 });
-  await vi.runOnlyPendingTimersAsync(); // both sent, FIFO inflight [1, 2]
+  await vi.advanceTimersByTimeAsync(0); // both sent, FIFO inflight [1, 2]
   s.receive({ type: "error", detail: "bad" }); // corresponds to seq 1
   s.receive({ type: "ack", seq: 2 });
-  await vi.runOnlyPendingTimersAsync();
+  await vi.advanceTimersByTimeAsync(0);
   expect(await queue.pending()).toEqual([]); // 1 dropped, 2 acked
 });
 
@@ -67,7 +67,7 @@ test("events enqueued while authed are pushed immediately", async () => {
   const s = sockets[0]!;
   s.open();
   s.receive({ type: "auth_ok", last_seq: 0 });
-  await vi.runOnlyPendingTimersAsync();
+  await vi.advanceTimersByTimeAsync(0);
   await queue.enqueue(visits("https://late.com")); // seq 1
   await client.notifyEnqueued();
   const envelopes = s.sentJson().slice(1) as { seq: number }[];
@@ -80,14 +80,14 @@ test("heartbeat pings keep FIFO correspondence intact", async () => {
   const s = sockets[0]!;
   s.open();
   s.receive({ type: "auth_ok", last_seq: 0 });
-  await vi.runOnlyPendingTimersAsync();
+  await vi.advanceTimersByTimeAsync(0);
   await vi.advanceTimersByTimeAsync(20_000); // heartbeat fires
   expect(s.sentJson()).toContainEqual({ type: "ping" });
   await queue.enqueue(visits("https://a.com")); // seq 1
   await client.notifyEnqueued();
   s.receive({ type: "pong" }); // pops the ping marker, not the envelope
   s.receive({ type: "error", detail: "bad" }); // must drop seq 1, not a ping
-  await vi.runOnlyPendingTimersAsync();
+  await vi.advanceTimersByTimeAsync(0);
   expect(await queue.pending()).toEqual([]);
 });
 
@@ -106,7 +106,7 @@ test("reconnects with exponential backoff and resets after auth", async () => {
   expect(sockets).toHaveLength(3);
   sockets[2]!.open();
   sockets[2]!.receive({ type: "auth_ok", last_seq: 0 });
-  await vi.runOnlyPendingTimersAsync(); // backoff reset
+  await vi.advanceTimersByTimeAsync(0); // backoff reset
   sockets[2]!.close();
   await vi.advanceTimersByTimeAsync(1000);
   expect(sockets).toHaveLength(4); // back to base delay
