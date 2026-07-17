@@ -1,6 +1,8 @@
 import { gapFillVisits, type HistoryApi } from "./history";
+import { pageCaptureEvent, type PageMessage } from "./capture";
 import { EventQueue } from "./queue";
 import { loadSettings } from "./settings";
+import { SessionManager } from "./sessions";
 import { makeContainerResolver, pushTabSnapshot, pushVisit } from "./sync";
 import { TabTracker, type BrowserTab } from "./tabs";
 import type { StorageArea } from "./types";
@@ -14,6 +16,7 @@ const session = browser.storage.session as unknown as StorageArea;
 
 const queue = new EventQueue(local);
 const tracker = new TabTracker(session, Date.now);
+const sessionManager = new SessionManager(local, Date.now);
 const containerName = makeContainerResolver(
   // Firefox-only API; undefined on Chrome (enhancement layer).
   (browser as { contextualIdentities?: Parameters<typeof makeContainerResolver>[0] })
@@ -69,6 +72,113 @@ function scheduleSnapshot(): void {
     logged(syncDeps().then(pushTabSnapshot));
   }, 2000);
 }
+
+// ---------------------------------------------------------------------------
+// Session lifecycle + dynamic content script registration
+// ---------------------------------------------------------------------------
+
+const CAPTURE_SCRIPT_ID = "bb-capture";
+
+async function registerCapture(): Promise<void> {
+  const existing = await browser.scripting.getRegisteredContentScripts({
+    ids: [CAPTURE_SCRIPT_ID],
+  });
+  if (existing.length === 0) {
+    await browser.scripting.registerContentScripts([
+      {
+        id: CAPTURE_SCRIPT_ID,
+        js: ["content.js"],
+        matches: ["<all_urls>"],
+        runAt: "document_idle",
+        persistAcrossSessions: true,
+      },
+    ]);
+  }
+}
+
+async function unregisterCapture(): Promise<void> {
+  try {
+    await browser.scripting.unregisterContentScripts({ ids: [CAPTURE_SCRIPT_ID] });
+  } catch {
+    // not registered — fine
+  }
+}
+
+function setBadge(status: "recording" | "paused" | null): void {
+  const text = status === "recording" ? "REC" : status === "paused" ? "II" : "";
+  void browser.action.setBadgeText({ text });
+  void browser.action.setBadgeBackgroundColor({
+    color: status === "recording" ? "#c0392b" : "#7f8c8d",
+  });
+}
+
+interface SessionCommand {
+  type: "bb:session";
+  action: "start" | "pause" | "resume" | "stop" | "status";
+  name?: string;
+}
+
+async function handleSessionCommand(
+  cmd: SessionCommand,
+): Promise<{ session: unknown; connection: string }> {
+  switch (cmd.action) {
+    case "start": {
+      // `||` not `??` — an empty/whitespace name must fall back,
+      // or the backend's min_length=1 validation error-drops the event and
+      // every capture behind it.
+      const name = cmd.name?.trim() || "untitled session";
+      const { event } = await sessionManager.start(name);
+      await queue.enqueue(event);
+      await (await ensureClient()).notifyEnqueued();
+      await registerCapture();
+      setBadge("recording");
+      break;
+    }
+    case "pause":
+      await sessionManager.pause();
+      await unregisterCapture(); // paused = capture fully off
+      setBadge("paused");
+      break;
+    case "resume":
+      await sessionManager.resume();
+      await registerCapture();
+      setBadge("recording");
+      break;
+    case "stop": {
+      const result = await sessionManager.stop();
+      await unregisterCapture();
+      setBadge(null);
+      if (result) {
+        await queue.enqueue(result.event);
+        await (await ensureClient()).notifyEnqueued();
+      }
+      break;
+    }
+    case "status":
+      break;
+  }
+  return { session: await sessionManager.current(), connection: clientStatus };
+}
+
+async function handlePageMessage(
+  msg: PageMessage,
+  cookieStoreId: string | undefined,
+): Promise<void> {
+  const container = await containerName(cookieStoreId);
+  const event = pageCaptureEvent(msg, container);
+  if (!event) return;
+  // Recording check happens LAST, immediately before enqueue — a stop command
+  // racing this handler must not slip a capture in behind the session_end event
+  // (narrows the check-to-enqueue window to zero awaits).
+  const state = await sessionManager.current();
+  if (state?.status !== "recording") return; // stale content script or paused
+  await queue.enqueue(event);
+  await (await ensureClient()).notifyEnqueued();
+}
+
+// ---------------------------------------------------------------------------
+// Tab / window / history listeners
+// ---------------------------------------------------------------------------
 
 browser.tabs.onActivated.addListener((info) => {
   void browser.windows
@@ -130,12 +240,21 @@ browser.alarms.onAlarm.addListener((alarm) => {
   );
 });
 
-// Options page asks for connection status.
-browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message === "bb:status") {
     sendResponse({ status: clientStatus });
     return true;
   }
+  const msg = message as { type?: string };
+  if (msg?.type === "bb:page") {
+    logged(handlePageMessage(msg as PageMessage, sender.tab?.cookieStoreId));
+    return false; // no reply — content script fire-and-forget
+  }
+  if (msg?.type === "bb:session") {
+    void handleSessionCommand(msg as SessionCommand).then(sendResponse);
+    return true; // async reply
+  }
+  return false;
 });
 
 // Settings changed: rebuild the client with the new URL/secret.
@@ -149,3 +268,17 @@ browser.storage.onChanged.addListener((changes, area) => {
 });
 
 void ensureClient();
+
+// Reconcile capture registration with persisted session state on wake:
+// a browser restart keeps the session recording (user never said stop).
+logged(
+  (async () => {
+    const state = await sessionManager.current();
+    if (state?.status === "recording") {
+      await registerCapture();
+    } else {
+      await unregisterCapture();
+    }
+    setBadge(state?.status ?? null);
+  })(),
+);

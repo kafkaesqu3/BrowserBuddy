@@ -1,5 +1,5 @@
 {
-  "permissions": ["tabs", "history", "storage", "alarms", "contextualIdentities", "cookies"],
+  "permissions": ["tabs", "history", "storage", "alarms", "contextualIdentities", "cookies", "scripting"],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'"
   },
