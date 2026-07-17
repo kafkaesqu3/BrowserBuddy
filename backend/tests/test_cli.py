@@ -112,8 +112,6 @@ def test_import_history_corrupt_db_fails_clearly(tmp_path):
     profile = tmp_path / "profile"
     profile.mkdir()
     (profile / "places.sqlite").write_bytes(b"this is not a sqlite database")
-    result = runner.invoke(
-        app, ["import-history", "--profile", str(profile)], env=_env(tmp_path)
-    )
+    result = runner.invoke(app, ["import-history", "--profile", str(profile)], env=_env(tmp_path))
     assert result.exit_code == 1
     assert "corrupt" in result.output.lower()
