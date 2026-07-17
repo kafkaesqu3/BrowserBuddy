@@ -34,12 +34,16 @@ function render(reply: SessionReply): void {
 }
 
 async function command(action: string, name?: string): Promise<void> {
-  const reply = (await browser.runtime.sendMessage({
-    type: "bb:session",
-    action,
-    name,
-  })) as SessionReply;
-  render(reply);
+  try {
+    const reply = (await browser.runtime.sendMessage({
+      type: "bb:session",
+      action,
+      name,
+    })) as SessionReply;
+    render(reply);
+  } catch {
+    connectionEl.textContent = "Backend: background unavailable";
+  }
 }
 
 el<HTMLButtonElement>("start").addEventListener("click", () => {
