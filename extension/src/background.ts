@@ -4,7 +4,10 @@ import { loadSettings } from "./settings";
 import { makeContainerResolver, pushTabSnapshot, pushVisit } from "./sync";
 import { TabTracker, type BrowserTab } from "./tabs";
 import type { StorageArea } from "./types";
-import { WsClient, type WsLike } from "./ws";
+import { WsClient, type WsLike, type WsStatus } from "./ws";
+
+// Chrome has no `browser` global; alias it (portability policy: chrome-compatible core).
+globalThis.browser ??= (globalThis as { chrome?: typeof browser }).chrome as typeof browser;
 
 const local = browser.storage.local as unknown as StorageArea;
 const session = browser.storage.session as unknown as StorageArea;
@@ -13,34 +16,36 @@ const queue = new EventQueue(local);
 const tracker = new TabTracker(session, Date.now);
 const containerName = makeContainerResolver(
   // Firefox-only API; undefined on Chrome (enhancement layer).
-  (globalThis as Record<string, unknown>)["browser"] !== undefined
-    ? ((globalThis as Record<string, unknown>)["browser"] as Record<string, unknown>)[
-        "contextualIdentities"
-      ] as Parameters<typeof makeContainerResolver>[0]
-    : undefined,
+  (browser as { contextualIdentities?: Parameters<typeof makeContainerResolver>[0] })
+    .contextualIdentities,
 );
 
-let client: WsClient | null = null;
+const logged = (p: Promise<unknown>): void =>
+  void p.catch((e) => console.warn("BrowserBuddy:", e));
 
-async function ensureClient(): Promise<WsClient> {
-  if (client) return client;
+// Single-flight: concurrent callers must share one WsClient. Two clients would
+// double-drain the queue, and the orphan's heartbeat would keep the MV3 worker
+// alive forever.
+let clientPromise: Promise<WsClient> | null = null;
+let clientStatus: WsStatus = "disconnected";
+
+async function buildClient(): Promise<WsClient> {
   const settings = await loadSettings(local);
-  client = new WsClient({
+  const c = new WsClient({
     url: settings.backendUrl,
     secret: settings.secret,
     clientId: settings.clientId,
     queue,
-    // M3 hardening from the ws.ts review: an invalid user-edited URL must not
-    // leave the client wedged in "connecting" — treat construction failure
-    // like a connection failure (status stays disconnected; alarm retries).
     makeSocket: (url) => new WebSocket(url) as unknown as WsLike,
+    onStatus: (s) => (clientStatus = s),
   });
-  try {
-    client.connect();
-  } catch (err) {
-    console.warn("BrowserBuddy: cannot open WebSocket (bad URL?)", err);
-  }
-  return client;
+  c.connect();
+  return c;
+}
+
+function ensureClient(): Promise<WsClient> {
+  clientPromise ??= buildClient();
+  return clientPromise;
 }
 
 const syncDeps = async () => ({
@@ -55,18 +60,23 @@ let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
 function scheduleSnapshot(): void {
   clearTimeout(snapshotTimer);
   snapshotTimer = setTimeout(() => {
-    void syncDeps().then(pushTabSnapshot);
+    logged(syncDeps().then(pushTabSnapshot));
   }, 2000);
 }
 
 browser.tabs.onActivated.addListener((info) => {
-  void browser.windows.get(info.windowId).then((win) => {
-    if (win.focused) {
-      void tracker.recordActivation(info.tabId, info.windowId).then(scheduleSnapshot);
-    } else {
-      scheduleSnapshot();
-    }
-  });
+  void browser.windows
+    .get(info.windowId)
+    .then((win) => {
+      // tabs.onActivated fires for background windows too; TabTracker's
+      // precondition is "focused window's active tab only".
+      if (win.focused) {
+        void tracker.recordActivation(info.tabId, info.windowId).then(scheduleSnapshot);
+      } else {
+        scheduleSnapshot();
+      }
+    })
+    .catch(() => scheduleSnapshot()); // window can close mid-switch
 });
 browser.tabs.onCreated.addListener(() => scheduleSnapshot());
 browser.tabs.onRemoved.addListener(() => scheduleSnapshot());
@@ -86,39 +96,43 @@ browser.windows.onFocusChanged.addListener((windowId) => {
 });
 
 browser.history.onVisited.addListener((item) => {
-  void syncDeps().then((d) => pushVisit(d, item));
+  logged(syncDeps().then((d) => pushVisit(d, item)));
 });
 
 // Periodic safety net: refresh active_ms, reconnect if needed, fill gaps.
-browser.alarms.create("bb-sync", { periodInMinutes: 1 });
+// Only create the alarm if absent so worker wakeups don't reset its phase.
+void browser.alarms.get("bb-sync").then((existing) => {
+  if (!existing) browser.alarms.create("bb-sync", { periodInMinutes: 1 });
+});
 browser.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name !== "bb-sync") return;
-  void (async () => {
-    const d = await syncDeps();
-    const visits = await gapFillVisits(
-      browser.history as unknown as HistoryApi,
-      local,
-    );
-    for (const v of visits) {
-      await queue.enqueue({ type: "history_visits", visits: [v] });
-    }
-    await d.client.notifyEnqueued();
-    await pushTabSnapshot(d);
-  })();
+  logged(
+    (async () => {
+      const d = await syncDeps();
+      const visits = await gapFillVisits(browser.history as unknown as HistoryApi, local);
+      // Chunked batches: bounds frame size and avoids O(n^2) queue rewrites.
+      for (let i = 0; i < visits.length; i += 500) {
+        await queue.enqueue({ type: "history_visits", visits: visits.slice(i, i + 500) });
+      }
+      await d.client.notifyEnqueued();
+      await pushTabSnapshot(d);
+    })(),
+  );
 });
 
 // Options page asks for connection status.
 browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message === "bb:status") {
-    sendResponse({ status: client?.status ?? "disconnected" });
+    sendResponse({ status: clientStatus });
   }
 });
 
 // Settings changed: rebuild the client with the new URL/secret.
 browser.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes["bb:settings"]) {
-    client?.disconnect();
-    client = null;
+    const old = clientPromise;
+    clientPromise = null;
+    void old?.then((c) => c.disconnect());
     void ensureClient();
   }
 });

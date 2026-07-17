@@ -44,7 +44,17 @@ export class WsClient {
     clearTimeout(this.reconnectTimer);
     if (this.socket || this.stopped) return;
     this.setStatus("connecting");
-    const socket = this.opts.makeSocket(this.opts.url);
+    let socket: WsLike;
+    try {
+      // e.g. `new WebSocket(url)` throws synchronously on a malformed
+      // user-edited URL; treat it like a connection failure so status never
+      // wedges at "connecting" and the backoff retry still runs.
+      socket = this.opts.makeSocket(this.opts.url);
+    } catch (err) {
+      console.warn("BrowserBuddy: cannot open WebSocket (bad URL?)", err);
+      this.handleClose(); // status disconnected + backoff retry
+      return;
+    }
     this.socket = socket;
     socket.onopen = () => {
       socket.send(

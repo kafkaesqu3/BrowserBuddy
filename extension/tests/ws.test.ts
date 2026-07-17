@@ -179,6 +179,26 @@ test("concurrent notifyEnqueued calls do not send duplicate envelopes", async ()
   expect(envelopes.map((e) => e.seq)).toEqual([1]);
 });
 
+test("makeSocket throwing (bad URL) leaves status disconnected and retries", async () => {
+  const queue = new EventQueue(fakeStorageArea());
+  let attempts = 0;
+  const client = new WsClient({
+    url: "not a url",
+    secret: "s3cret",
+    clientId: "ext-test",
+    queue,
+    makeSocket: () => {
+      attempts += 1;
+      throw new Error("invalid URL");
+    },
+  });
+  client.connect(); // must not throw or wedge in "connecting"
+  expect(client.status).toBe("disconnected");
+  expect(attempts).toBe(1);
+  await vi.advanceTimersByTimeAsync(1000); // base backoff delay
+  expect(attempts).toBe(2); // retried
+});
+
 test("disconnect() stops reconnection (settings changed)", async () => {
   const { sockets, client } = setup();
   client.connect();
