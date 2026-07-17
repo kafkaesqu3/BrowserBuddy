@@ -170,15 +170,18 @@ def test_ws_session_lifecycle_and_page_capture(client, app):
         )
         assert ws.receive_json() == {"type": "ack", "seq": 1}
         ws.send_json(
-            _envelope(2, {
-                "type": "page_capture",
-                "url": "https://arxiv.org/abs/7",
-                "title": "Grounded decoding",
-                "visited_at": 150,
-                "text": "grounded decoding methods for agents",
-                "html": "<html><body>grounded decoding</body></html>",
-                "container": "Research",
-            })
+            _envelope(
+                2,
+                {
+                    "type": "page_capture",
+                    "url": "https://arxiv.org/abs/7",
+                    "title": "Grounded decoding",
+                    "visited_at": 150,
+                    "text": "grounded decoding methods for agents",
+                    "html": "<html><body>grounded decoding</body></html>",
+                    "container": "Research",
+                },
+            )
         )
         assert ws.receive_json() == {"type": "ack", "seq": 2}
         ws.send_json(_envelope(3, {"type": "session_end", "ended_at": 200}))
@@ -221,8 +224,15 @@ def test_ws_page_capture_without_html_stores_no_blob(client, app):
         ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 1}))
         ws.receive_json()
         ws.send_json(
-            _envelope(2, {"type": "page_capture", "url": "https://a.com", "visited_at": 2,
-                          "text": "plain text only"})
+            _envelope(
+                2,
+                {
+                    "type": "page_capture",
+                    "url": "https://a.com",
+                    "visited_at": 2,
+                    "text": "plain text only",
+                },
+            )
         )
         assert ws.receive_json() == {"type": "ack", "seq": 2}
     row = app.state.storage._conn.execute("SELECT html_key FROM page_visits").fetchone()
@@ -239,9 +249,7 @@ def test_ws_duplicate_page_capture_is_acked_not_errored(client, app):
         assert ws.receive_json() == {"type": "ack", "seq": 2}
         ws.send_json(_envelope(3, capture))  # same page again: absorbed, not error
         assert ws.receive_json() == {"type": "ack", "seq": 3}
-    assert app.state.storage._conn.execute(
-        "SELECT COUNT(*) FROM page_visits"
-    ).fetchone()[0] == 1
+    assert app.state.storage._conn.execute("SELECT COUNT(*) FROM page_visits").fetchone()[0] == 1
 
 
 def test_ws_stale_connection_cannot_apply_old_snapshot(client, app):

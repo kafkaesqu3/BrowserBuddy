@@ -169,9 +169,7 @@ class Storage:
         """
         # Exists-check outside the txn is fine: sessions are never deleted in
         # v2; the FK constraint is the backstop.
-        exists = self._conn.execute(
-            "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
-        ).fetchone()
+        exists = self._conn.execute("SELECT 1 FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if exists is None:
             raise NoActiveSessionError(f"no such session: {session_id}")
         with self._conn:

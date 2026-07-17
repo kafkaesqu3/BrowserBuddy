@@ -16,9 +16,7 @@ def test_starting_a_session_ends_the_previous_one(storage):
     first = storage.start_session("ext-1", "one", started_at=1000)
     second = storage.start_session("ext-1", "two", started_at=2000)
     assert storage.get_active_session("ext-1")["id"] == second
-    row = storage._conn.execute(
-        "SELECT ended_at FROM sessions WHERE id = ?", (first,)
-    ).fetchone()
+    row = storage._conn.execute("SELECT ended_at FROM sessions WHERE id = ?", (first,)).fetchone()
     assert row["ended_at"] == 2000  # implicitly closed at the new start
 
 
@@ -42,10 +40,18 @@ def test_add_page_visit_and_search(storage):
     )
     assert n == 1
     # duplicate (session, url, visited_at) ignored
-    assert storage.add_page_visit(
-        sid, url="https://arxiv.org/abs/42", title="x", visited_at=1500, text="y",
-        html_key=None, container=None,
-    ) == 0
+    assert (
+        storage.add_page_visit(
+            sid,
+            url="https://arxiv.org/abs/42",
+            title="x",
+            visited_at=1500,
+            text="y",
+            html_key=None,
+            container=None,
+        )
+        == 0
+    )
     results = storage.search_pages("sparse ranking")
     assert len(results) == 1
     assert results[0]["url"] == "https://arxiv.org/abs/42"
@@ -55,15 +61,21 @@ def test_add_page_visit_and_search(storage):
 def test_add_page_visit_requires_valid_session(storage):
     with pytest.raises(LookupError):
         storage.add_page_visit(
-            9999, url="https://a.com", title="", visited_at=1, text="",
-            html_key=None, container=None,
+            9999,
+            url="https://a.com",
+            title="",
+            visited_at=1,
+            text="",
+            html_key=None,
+            container=None,
         )
 
 
 def test_list_sessions_with_page_counts(storage):
     sid = storage.start_session("ext-1", "s1", started_at=1000)
-    storage.add_page_visit(sid, url="https://a.com", title="", visited_at=1100,
-                           text="", html_key=None, container=None)
+    storage.add_page_visit(
+        sid, url="https://a.com", title="", visited_at=1100, text="", html_key=None, container=None
+    )
     storage.end_session("ext-1", ended_at=2000)
     storage.start_session("ext-1", "s2", started_at=3000)
     rows = storage.list_sessions()

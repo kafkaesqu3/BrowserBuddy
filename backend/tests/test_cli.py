@@ -125,9 +125,13 @@ def _seed_session(tmp_path):
     s = Storage(conn)
     sid = s.start_session("ext-1", "vector research", started_at=1720000000000)
     s.add_page_visit(
-        sid, url="https://arxiv.org/abs/8", title="HNSW explained",
-        visited_at=1720000001000, text="hierarchical navigable small worlds",
-        html_key=None, container=None,
+        sid,
+        url="https://arxiv.org/abs/8",
+        title="HNSW explained",
+        visited_at=1720000001000,
+        text="hierarchical navigable small worlds",
+        html_key=None,
+        container=None,
     )
     s.end_session("ext-1", ended_at=1720000100000)
     conn.close()
