@@ -10,9 +10,23 @@ export const MAX_QUEUE = 5000;
 
 /** Durable outbound queue. Seq numbers survive background-worker death. */
 export class EventQueue {
+  // storage.get/set are not transactional; interleaved listeners would race
+  // the read-modify-write without this.
+  private mutex: Promise<unknown> = Promise.resolve();
+
   constructor(private storage: StorageArea) {}
 
-  async enqueue(event: EventPayload): Promise<EventEnvelope> {
+  private serialize<T>(fn: () => Promise<T>): Promise<T> {
+    const next = this.mutex.then(fn, fn);
+    this.mutex = next.catch(() => undefined);
+    return next;
+  }
+
+  enqueue(event: EventPayload): Promise<EventEnvelope> {
+    return this.serialize(() => this.enqueueImpl(event));
+  }
+
+  private async enqueueImpl(event: EventPayload): Promise<EventEnvelope> {
     const state = await this.storage.get([SEQ_KEY, QUEUE_KEY]);
     const seq = ((state[SEQ_KEY] as number) ?? 0) + 1;
     let queue = ((state[QUEUE_KEY] as EventEnvelope[]) ?? []);
@@ -28,19 +42,27 @@ export class EventQueue {
 
   async pending(): Promise<EventEnvelope[]> {
     const state = await this.storage.get(QUEUE_KEY);
-    return ((state[QUEUE_KEY] as EventEnvelope[]) ?? []).sort((a, b) => a.seq - b.seq);
+    return [...((state[QUEUE_KEY] as EventEnvelope[]) ?? [])].sort((a, b) => a.seq - b.seq);
   }
 
   /** Remove everything at or below `seq` (server acked it, or reported it as
    * already-known via auth_ok.last_seq). */
-  async ack(seq: number): Promise<void> {
+  ack(seq: number): Promise<void> {
+    return this.serialize(() => this.ackImpl(seq));
+  }
+
+  private async ackImpl(seq: number): Promise<void> {
     const queue = (await this.pending()).filter((e) => e.seq > seq);
     await this.storage.set({ [QUEUE_KEY]: queue });
   }
 
   /** Remove exactly one seq: the server sent an error frame for it, which
    * means "skip or fix, never blind-retry" (see backend EventEnvelope docs). */
-  async drop(seq: number): Promise<void> {
+  drop(seq: number): Promise<void> {
+    return this.serialize(() => this.dropImpl(seq));
+  }
+
+  private async dropImpl(seq: number): Promise<void> {
     const queue = (await this.pending()).filter((e) => e.seq !== seq);
     await this.storage.set({ [QUEUE_KEY]: queue });
   }

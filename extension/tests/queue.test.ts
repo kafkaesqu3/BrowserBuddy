@@ -69,3 +69,25 @@ test("queue is capped: oldest events drop beyond MAX_QUEUE", async () => {
   expect(pending).toHaveLength(MAX_QUEUE);
   expect(pending[0]!.seq).toBe(11); // 10 oldest dropped
 });
+
+test("concurrent enqueues produce unique seq numbers (no RMW race)", async () => {
+  const storage = fakeStorageArea();
+  const q = new EventQueue(storage);
+  // Start both before either resolves — simulates two event listeners firing.
+  const [a, b] = await Promise.all([
+    q.enqueue(visits("https://a.com")),
+    q.enqueue(visits("https://b.com")),
+  ]);
+  expect(new Set([a.seq, b.seq]).size).toBe(2); // must be distinct
+  expect(await q.pending()).toHaveLength(2); // neither event lost
+});
+
+test("ack concurrent with enqueue does not lose the new event", async () => {
+  const storage = fakeStorageArea();
+  const q = new EventQueue(storage);
+  await q.enqueue(visits("https://a.com")); // seq 1
+  await q.enqueue(visits("https://b.com")); // seq 2
+  await Promise.all([q.ack(1), q.enqueue(visits("https://c.com"))]);
+  const seqs = (await q.pending()).map((e) => e.seq);
+  expect(seqs).toContain(3); // event c must not be lost
+});
