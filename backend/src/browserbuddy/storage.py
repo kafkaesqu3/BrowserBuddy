@@ -109,17 +109,26 @@ class Storage:
     def start_session(self, client_id: str, name: str, started_at: int) -> int:
         """Open a session; any still-active session for this client is
         implicitly closed at the new start time (one active session per
-        client by design)."""
+        client by design). Idempotent on (client_id, started_at): a replayed
+        or same-millisecond start returns the existing session instead of
+        stranding the event in an IntegrityError retry loop.
+        """
         with self._conn:
             self._conn.execute(
-                "UPDATE sessions SET ended_at = ? WHERE client_id = ? AND ended_at IS NULL",
-                (started_at, client_id),
+                "UPDATE sessions SET ended_at = ?"
+                " WHERE client_id = ? AND ended_at IS NULL AND started_at != ?",
+                (started_at, client_id, started_at),
             )
-            cur = self._conn.execute(
-                "INSERT INTO sessions (client_id, name, started_at) VALUES (?, ?, ?)",
+            self._conn.execute(
+                "INSERT INTO sessions (client_id, name, started_at) VALUES (?, ?, ?)"
+                " ON CONFLICT (client_id, started_at) DO NOTHING",
                 (client_id, name, started_at),
             )
-        return cur.lastrowid
+        row = self._conn.execute(
+            "SELECT id FROM sessions WHERE client_id = ? AND started_at = ?",
+            (client_id, started_at),
+        ).fetchone()
+        return row["id"]
 
     def end_session(self, client_id: str, ended_at: int) -> bool:
         """Close the active session. Returns False when none is active
@@ -154,6 +163,8 @@ class Storage:
         Raises LookupError for an unknown session_id so the WS loop can send
         an error frame instead of dying.
         """
+        # Exists-check outside the txn is fine: sessions are never deleted in
+        # v2; the FK constraint is the backstop.
         exists = self._conn.execute(
             "SELECT 1 FROM sessions WHERE id = ?", (session_id,)
         ).fetchone()
@@ -171,7 +182,7 @@ class Storage:
     def list_sessions(self, limit: int = 20) -> list[sqlite3.Row]:
         return self._conn.execute(
             """
-            SELECT s.id, s.name, s.started_at, s.ended_at,
+            SELECT s.id, s.client_id, s.name, s.started_at, s.ended_at,
                    COUNT(p.id) AS page_count
             FROM sessions s LEFT JOIN page_visits p ON p.session_id = s.id
             GROUP BY s.id ORDER BY s.started_at DESC LIMIT ?

@@ -22,6 +22,13 @@ def test_starting_a_session_ends_the_previous_one(storage):
     assert row["ended_at"] == 2000  # implicitly closed at the new start
 
 
+def test_start_session_same_timestamp_is_idempotent(storage):
+    first = storage.start_session("ext-1", "one", started_at=1000)
+    replay = storage.start_session("ext-1", "one", started_at=1000)
+    assert replay == first  # same session, no IntegrityError
+    assert storage.get_active_session("ext-1")["id"] == first
+
+
 def test_add_page_visit_and_search(storage):
     sid = storage.start_session("ext-1", "s", started_at=1000)
     n = storage.add_page_visit(
