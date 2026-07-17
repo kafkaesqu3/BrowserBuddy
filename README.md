@@ -19,3 +19,18 @@ uv run buddy secret           # secret to paste into the extension
 
 Data lives in `~/.browserbuddy/` (SQLite + secret). Override with
 `BROWSERBUDDY_DATA_DIR`.
+
+## Extension (Firefox) quick start
+
+```bash
+cd extension
+npm install
+npm run build          # emits dist/firefox and dist/chrome
+npm run smoke          # web-ext: launches Firefox with the extension loaded
+```
+
+Pair it: run `buddy secret`, paste into the extension's options page
+(about:addons → BrowserBuddy → Preferences), Save. The extension then
+continuously syncs open tabs and history to the backend (`buddy tabs`,
+`buddy search ...`). Offline-safe: events buffer in extension storage and
+replay on reconnect.
