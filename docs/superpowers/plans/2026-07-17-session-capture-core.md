@@ -1631,3 +1631,31 @@ git commit -m "Document research sessions"
 - **Type consistency:** PageCaptureEvent (backend) ↔ PageCapture + EventPayload arm (extension) field-for-field; SessionManager events match SessionStartEvent/SessionEndEvent; capture.ts MAX_HTML_CHARS bounds the 16MB frame limit with big margin; test counts accumulate 60→64→69→72 (backend), 35→40→44→47 (extension).
 - **Known simplifications (deliberate):** raw HTML travels inline in the WS event rather than the spec's REST-for-blobs (that endpoint arrives with screenshots in M3b; inline is within frame limits at the 2MB cap and content-addressing dedupes storage); pause is client-side only (backend session stays open); popup polls at 2s like the options page.
 
+
+## Follow-ups for M3b
+
+Recorded from the final whole-branch review (2026-07-20); none block this
+milestone:
+
+1. **Dangling backend session**: if `sessionManager.stop()` succeeds but the
+   `session_end` enqueue throws, the backend session stays open until the
+   next `session_start` implicitly closes it. The M4 digest generator must
+   tolerate open-ended sessions (or M3b adds a reconcile).
+2. **Fast stop→start mislabel residuals** (≤500ms window, benign): a stale
+   content script's settle timer can attribute the old page to the new
+   session; a capture interleaving inside the start command can land in the
+   old still-open session. Accepted; revisit if digests show mislabels.
+3. **Chrome alias gap in popup.ts** (bare `browser`, like options.ts — M2
+   follow-up §4): dist/chrome popup would throw. Part of the deferred
+   Chrome port.
+4. **web-ext lint warnings** (zero-warnings justification): 2×
+   `UNSAFE_VAR_ASSIGNMENT` come from bundled @mozilla/readability internals
+   (innerHTML use inside the library) — not our code, not fixable without
+   forking; plus the pre-existing AMO `data_collection_permissions` item.
+5. **Carried M2 leftovers, now more pressing**: EventQueue rewrites the whole
+   array per enqueue/ack and captures now carry up to 2MB html — chunked
+   storage keys or per-event keys before M3b's screenshot volume; idle-API
+   integration for active-time honesty. Also: backend `gzip.compress` of
+   large html runs on the event loop (move to a thread with M3b's REST blob
+   endpoint); `background.ts` reply-state read outside the lifecycle mutex
+   (popup self-corrects via poll); CLI search header asymmetry (cosmetic).
