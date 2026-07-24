@@ -63,12 +63,17 @@ test("enqueue coalesces pending tab_state (only latest snapshot matters)", async
 
 test("queue is capped: oldest events drop beyond MAX_QUEUE", async () => {
   const storage = fakeStorageArea();
-  // Seed a full queue directly: enqueueing MAX_QUEUE events one by one is
-  // O(n^2) now that the fake clones stored values like the real API does.
-  const seeded = Array.from({ length: MAX_QUEUE }, (_, i) => ({
-    v: 1, seq: i + 1, event: visits(`https://p${i}.com`),
+  // Seed a full queue directly in the per-event layout (enqueueing MAX_QUEUE
+  // events one by one would be O(n^2)).
+  const index = Array.from({ length: MAX_QUEUE }, (_, i) => ({
+    seq: i + 1,
+    type: "history_visits",
   }));
-  await storage.set({ "bb:seq": MAX_QUEUE, "bb:queue": seeded });
+  const bodies: Record<string, unknown> = {};
+  for (const e of index) {
+    bodies[`bb:q:${e.seq}`] = { v: 1, seq: e.seq, event: visits(`https://p${e.seq}.com`) };
+  }
+  await storage.set({ "bb:seq": MAX_QUEUE, "bb:queue:index": index, ...bodies });
   const q = new EventQueue(storage);
   for (let i = 0; i < 10; i++) await q.enqueue(visits(`https://q${i}.com`)); // seq 5001..5010
   const pending = await q.pending();
@@ -97,4 +102,61 @@ test("ack concurrent with enqueue does not lose the new event", async () => {
   const seqs = (await q.pending()).map((e) => e.seq);
   expect(seqs).toContain(3); // event c must not be lost
   expect(seqs).not.toContain(1); // and the stale ack write must not resurrect already-acked seqs
+});
+
+test("enqueue stores each event under its own bb:q:<seq> key", async () => {
+  const storage = fakeStorageArea();
+  const q = new EventQueue(storage);
+  await q.enqueue(visits("https://a.com")); // seq 1
+  await q.enqueue(visits("https://b.com")); // seq 2
+  expect(storage.data.has("bb:q:1")).toBe(true);
+  expect(storage.data.has("bb:q:2")).toBe(true);
+  // Legacy single-array key is not used.
+  expect(storage.data.has("bb:queue")).toBe(false);
+  const index = storage.data.get("bb:queue:index") as { seq: number }[];
+  expect(index.map((e) => e.seq)).toEqual([1, 2]);
+});
+
+test("ack removes the acked bodies, not just the index entries", async () => {
+  const storage = fakeStorageArea();
+  const q = new EventQueue(storage);
+  await q.enqueue(visits("https://a.com")); // seq 1
+  await q.enqueue(visits("https://b.com")); // seq 2
+  await q.ack(1);
+  expect(storage.data.has("bb:q:1")).toBe(false); // body reclaimed
+  expect(storage.data.has("bb:q:2")).toBe(true);
+  expect((await q.pending()).map((e) => e.seq)).toEqual([2]);
+});
+
+test("migrates a legacy bb:queue array to per-event keys on first use", async () => {
+  const storage = fakeStorageArea();
+  await storage.set({
+    "bb:seq": 2,
+    "bb:queue": [
+      { v: 1, seq: 1, event: visits("https://a.com") },
+      { v: 1, seq: 2, event: visits("https://b.com") },
+    ],
+  });
+  const q = new EventQueue(storage);
+  expect((await q.pending()).map((e) => e.seq)).toEqual([1, 2]);
+  expect(storage.data.has("bb:queue")).toBe(false); // legacy key removed
+  expect(storage.data.has("bb:q:1")).toBe(true);
+  // seq counter is preserved across the migration.
+  expect((await q.enqueue(visits("https://c.com"))).seq).toBe(3);
+});
+
+test("a fresh queue with no legacy data starts empty and assigns seq 1", async () => {
+  const storage = fakeStorageArea();
+  const q = new EventQueue(storage);
+  expect(await q.pending()).toEqual([]);
+  expect(storage.data.has("bb:queue")).toBe(false); // no spurious legacy write
+  expect((await q.enqueue(visits("https://a.com"))).seq).toBe(1);
+});
+
+test("an empty legacy bb:queue array is cleaned up without creating an index", async () => {
+  const storage = fakeStorageArea();
+  await storage.set({ "bb:queue": [] });
+  const q = new EventQueue(storage);
+  expect(await q.pending()).toEqual([]);
+  expect(storage.data.has("bb:queue")).toBe(false); // legacy key removed
 });
