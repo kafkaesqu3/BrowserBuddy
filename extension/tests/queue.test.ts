@@ -160,3 +160,14 @@ test("an empty legacy bb:queue array is cleaned up without creating an index", a
   expect(await q.pending()).toEqual([]);
   expect(storage.data.has("bb:queue")).toBe(false); // legacy key removed
 });
+
+test("pending ignores an orphaned body key not referenced by the index", async () => {
+  const storage = fakeStorageArea();
+  const q = new EventQueue(storage);
+  await q.enqueue(visits("https://a.com")); // seq 1, indexed
+  // Simulate a crash between the index set and the stale-body remove: a body
+  // key exists with no index entry. pending() reads via the index, so it must
+  // not surface the orphan.
+  await storage.set({ "bb:q:99": { v: 1, seq: 99, event: visits("https://orphan.com") } });
+  expect((await q.pending()).map((e) => e.seq)).toEqual([1]);
+});

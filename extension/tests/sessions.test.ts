@@ -77,7 +77,7 @@ test("stop preserves session state when commit throws (no lost session_end)", as
       throw new Error("enqueue failed");
     }),
   ).rejects.toThrow("enqueue failed");
-  // Session survives so a retry (or wake reconcile) can re-send session_end.
+  // Session survives so the user can retry Stop and re-send session_end.
   expect((await mgr.current())?.status).toBe("recording");
 });
 
