@@ -5,6 +5,10 @@ const firefoxOverlay = JSON.parse(
   readFileSync(new URL("../manifest.firefox.json", import.meta.url), "utf8"),
 ) as { content_security_policy?: { extension_pages?: string } };
 
+const baseManifest = JSON.parse(
+  readFileSync(new URL("../manifest.base.json", import.meta.url), "utf8"),
+) as { host_permissions?: string[]; optional_host_permissions?: string[] };
+
 test("Firefox CSP override exists and omits upgrade-insecure-requests", () => {
   // Firefox's MV3 DEFAULT extension CSP is "script-src 'self';
   // upgrade-insecure-requests", which silently rewrites the background
@@ -16,4 +20,14 @@ test("Firefox CSP override exists and omits upgrade-insecure-requests", () => {
   expect(csp).toBeDefined();
   expect(csp).toContain("script-src 'self'");
   expect(csp).not.toContain("upgrade-insecure-requests");
+});
+
+test("<all_urls> is a runtime-grantable optional host permission, not install-time", () => {
+  // The popup requests <all_urls> at the Start gesture via
+  // permissions.request(). In MV3, permissions.request() can only grant
+  // origins declared in optional_host_permissions — an origin sitting in
+  // host_permissions is NOT runtime-requestable, so the request fails and
+  // session_start is never enqueued (tabs still sync; sessions never do).
+  expect(baseManifest.optional_host_permissions).toEqual(["<all_urls>"]);
+  expect(baseManifest.host_permissions).toBeUndefined();
 });

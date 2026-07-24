@@ -5,5 +5,5 @@
   "description": "Research historian: syncs tabs and history to your local BrowserBuddy backend.",
   "options_ui": { "page": "src/options/options.html" },
   "action": { "default_popup": "src/popup/popup.html", "default_title": "BrowserBuddy" },
-  "host_permissions": ["<all_urls>"]
+  "optional_host_permissions": ["<all_urls>"]
 }
