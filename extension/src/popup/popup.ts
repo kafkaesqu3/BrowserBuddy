@@ -64,3 +64,10 @@ el<HTMLButtonElement>("stop").addEventListener("click", () => void command("stop
 
 void command("status");
 setInterval(() => void command("status"), 2000);
+
+el<HTMLAnchorElement>("settings").addEventListener("click", (e) => {
+  // The shared-secret field lives on the options page; the popup is the
+  // primary surface, so first-time pairing must be reachable from here.
+  e.preventDefault();
+  void browser.runtime.openOptionsPage();
+});
