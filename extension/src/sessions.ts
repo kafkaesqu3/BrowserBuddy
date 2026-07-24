@@ -62,12 +62,21 @@ export class SessionManager {
     });
   }
 
-  stop(): Promise<{ event: EventPayload } | null> {
+  /** Stop the active session. Durability-first: `commit` (which enqueues the
+   * session_end event) runs BEFORE local state is cleared, so a throwing
+   * commit leaves the session intact for a retry — otherwise a failed enqueue
+   * would strand the backend session open. Returns false when none is active
+   * (idempotent). Backend end_session is idempotent, so a duplicate
+   * session_end after a partial failure is a harmless no-op. The `commit`
+   * callback MUST reject on failure — a swallowed error would clear state on a
+   * lost event and defeat this guarantee. */
+  stop(commit: (event: EventPayload) => Promise<void>): Promise<boolean> {
     return this.serialize(async () => {
       const state = await this.current();
-      if (!state) return null;
+      if (!state) return false;
+      await commit({ type: "session_end", ended_at: this.now() });
       await this.local.remove(KEY);
-      return { event: { type: "session_end", ended_at: this.now() } };
+      return true;
     });
   }
 }

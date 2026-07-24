@@ -161,11 +161,10 @@ async function handleSessionCommand(
         await sessionManager.resume();
         break;
       case "stop": {
-        const result = await sessionManager.stop();
-        if (result) {
-          await queue.enqueue(result.event);
+        await sessionManager.stop(async (event) => {
+          await queue.enqueue(event);
           await (await ensureClient()).notifyEnqueued();
-        }
+        });
         break;
       }
       case "status":
