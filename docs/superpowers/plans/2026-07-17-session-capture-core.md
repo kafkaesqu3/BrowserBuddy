@@ -1659,3 +1659,12 @@ milestone:
    large html runs on the event loop (move to a thread with M3b's REST blob
    endpoint); `background.ts` reply-state read outside the lifecycle mutex
    (popup self-corrects via poll); CLI search header asymmetry (cosmetic).
+
+## Follow-ups added during smoke (2026-07-24)
+
+6. **Popup has no pairing path.** The toolbar popup is now the primary surface
+   but the shared-secret field lives only on the options page (reachable via
+   about:addons → Preferences). First-time pairing is undiscoverable from the
+   popup. Add a "⚙ Settings" link calling `browser.runtime.openOptionsPage()`.
+   (Surfaced when the user couldn't find where to enter the secret during the
+   M3a smoke; worked around via about:addons.)
