@@ -34,6 +34,18 @@ Completes the "research historian" capture surface. Everything here was
 deliberately deferred from M3a (plan `2026-07-17-session-capture-core.md`
 header + "Follow-ups for M3b").
 
+**Being built in slices** (too large for one spec→plan cycle): `0 → (A link
+graph, B dwell+SPA) → C screenshots`. See
+`specs/2026-07-24-m3b-slice0-foundation-design.md`.
+
+- ✅ **Slice 0 — Foundation & smoke debt** (merged): popup ⚙ Settings link
+  (`openOptionsPage`), client-side dangling-session reconcile (`stop` clears
+  local state only after `session_end` is durably enqueued), and EventQueue
+  per-event storage keys + legacy migration. Plan
+  `plans/2026-07-24-m3b-slice0-foundation.md`. Interactive smoke still owed.
+  The REST blob endpoint + gzip-to-thread moved to Slice C (built with their
+  only consumer, screenshots).
+
 **New capture (Tier-2 completion):**
 - Clicked links and per-page catalogued outbound links.
 - Navigation edges (how page B was reached from page A) + search-engine
@@ -46,19 +58,19 @@ header + "Follow-ups for M3b").
   inline in the WS event at a 2 MB cap; screenshots need out-of-band upload).
 
 **Carried engineering items (now load-bearing at Tier-2 volume):**
-- **EventQueue scaling**: it rewrites the whole capped array in `storage.local`
-  per enqueue/ack, and captures already carry up to 2 MB HTML — move to chunked
-  or per-event storage keys before screenshot volume lands.
+- ✅ **EventQueue scaling** (Slice 0): moved from the whole-array rewrite to
+  per-event `storage.local` keys (`bb:queue:index` + `bb:q:<seq>`), so a queued
+  2 MB HTML body is no longer rewritten per enqueue/ack.
 - **Backend `gzip.compress` on the event loop**: fine single-user today; move
-  to a thread when the REST blob endpoint arrives.
-- **Active-time honesty**: integrate the `idle` API so focused-but-away time
-  doesn't count as active.
-- **Popup pairing path**: add a "⚙ Settings" link
-  (`browser.runtime.openOptionsPage()`) — the popup is the primary surface but
-  the secret field is only on the options page (surfaced in the M3a smoke).
-- **Dangling backend session**: if `session_end` fails to enqueue after a
-  client-side stop, the backend session stays open until the next start —
-  add a reconcile (or handle in M4 digests).
+  to a thread when the REST blob endpoint arrives (Slice C).
+- **Active-time honesty** (Slice B): integrate the `idle` API so
+  focused-but-away time doesn't count as active.
+- ✅ **Popup pairing path** (Slice 0): added the "⚙ Settings" link
+  (`browser.runtime.openOptionsPage()`).
+- ✅ **Dangling backend session** (Slice 0, client side): `stop` now enqueues
+  `session_end` durably before clearing local state. A session orphaned by
+  uninstall mid-recording still needs M4 digests to tolerate open-ended
+  sessions.
 
 ---
 
