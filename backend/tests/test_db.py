@@ -77,9 +77,30 @@ def test_v2_migration_upgrades_v1_data_intact(tmp_path, monkeypatch):
     conn.commit()
     conn.close()
     monkeypatch.undo()
-    conn = db.connect(path)  # now applies v2 on top of existing v1 data
-    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 2
+    conn = db.connect(path)  # now applies v2 (and any later migrations) on top of v1 data
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 2
     tables = _tables(conn)
     assert {"sessions", "page_visits", "page_fts"} <= tables
     assert conn.execute("SELECT COUNT(*) FROM history_entries").fetchone()[0] == 1
+    conn.close()
+
+
+def test_v3_migration_adds_link_graph_tables_and_keeps_data(tmp_path):
+    path = tmp_path / "t.db"
+    conn = db.connect(path)
+    conn.execute(
+        "INSERT INTO history_entries (url, title, visit_time, source)"
+        " VALUES ('https://keep.me', 'Keep', 1000, 'import')"
+    )
+    conn.execute(
+        "INSERT INTO sessions (client_id, name, started_at) VALUES ('c', 's', 1)"
+    )
+    conn.commit()
+    conn.close()
+    conn = db.connect(path)  # re-running migrations applies any new versions
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 3
+    tables = _tables(conn)
+    assert {"nav_edges", "outbound_links"} <= tables
+    assert conn.execute("SELECT COUNT(*) FROM history_entries").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
     conn.close()

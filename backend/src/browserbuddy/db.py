@@ -103,6 +103,34 @@ MIGRATIONS: list[str] = [
         VALUES (new.id, new.url, new.title, new.text);
     END;
     """,
+    # v3: Tier-2 link graph — navigation edges and per-page outbound links.
+    """
+    CREATE TABLE nav_edges (
+        id INTEGER PRIMARY KEY,
+        session_id INTEGER NOT NULL REFERENCES sessions (id),
+        from_url TEXT,
+        to_url TEXT NOT NULL,
+        transition TEXT NOT NULL DEFAULT '',
+        qualifiers TEXT NOT NULL DEFAULT '',
+        query TEXT,
+        occurred_at INTEGER NOT NULL,
+        UNIQUE (session_id, from_url, to_url, occurred_at)
+    );
+
+    CREATE INDEX idx_nav_edges_session ON nav_edges (session_id);
+
+    CREATE TABLE outbound_links (
+        id INTEGER PRIMARY KEY,
+        page_visit_id INTEGER NOT NULL REFERENCES page_visits (id),
+        href TEXT NOT NULL,
+        anchor_text TEXT NOT NULL DEFAULT '',
+        rel TEXT NOT NULL DEFAULT '',
+        clicked INTEGER NOT NULL DEFAULT 0,
+        UNIQUE (page_visit_id, href)
+    );
+
+    CREATE INDEX idx_outbound_links_page ON outbound_links (page_visit_id);
+    """,
 ]
 
 
