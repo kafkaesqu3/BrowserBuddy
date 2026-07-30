@@ -29,7 +29,7 @@ def test_start_session_same_timestamp_is_idempotent(storage):
 
 def test_add_page_visit_and_search(storage):
     sid = storage.start_session("ext-1", "s", started_at=1000)
-    n = storage.add_page_visit(
+    pid = storage.add_page_visit(
         sid,
         url="https://arxiv.org/abs/42",
         title="Sparse retrieval methods",
@@ -38,8 +38,8 @@ def test_add_page_visit_and_search(storage):
         html_key="abc123",
         container="Research",
     )
-    assert n == 1
-    # duplicate (session, url, visited_at) ignored
+    assert pid > 0
+    # duplicate (session, url, visited_at) returns the same id (no new row)
     assert (
         storage.add_page_visit(
             sid,
@@ -50,7 +50,7 @@ def test_add_page_visit_and_search(storage):
             html_key=None,
             container=None,
         )
-        == 0
+        == pid
     )
     results = storage.search_pages("sparse ranking")
     assert len(results) == 1

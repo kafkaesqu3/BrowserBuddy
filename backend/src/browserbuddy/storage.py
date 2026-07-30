@@ -1,6 +1,6 @@
 import sqlite3
 
-from browserbuddy.models import HistoryVisit, TabRecord
+from browserbuddy.models import HistoryVisit, OutboundLink, TabRecord
 
 
 class NoActiveSessionError(LookupError):
@@ -162,8 +162,9 @@ class Storage:
         html_key: str | None,
         container: str | None,
     ) -> int:
-        """Record a captured page. Returns rows inserted (0 on duplicate).
+        """Record a captured page, returning its page_visit id.
 
+        Returns the existing id on a duplicate so outbound links still attach.
         Raises NoActiveSessionError for an unknown session_id so the WS loop
         can send an error frame instead of dying.
         """
@@ -179,7 +180,13 @@ class Storage:
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (session_id, url, title, visited_at, text, html_key, container),
             )
-        return cur.rowcount
+            if cur.rowcount:
+                return cur.lastrowid
+            row = self._conn.execute(
+                "SELECT id FROM page_visits WHERE session_id = ? AND url = ? AND visited_at = ?",
+                (session_id, url, visited_at),
+            ).fetchone()
+            return row["id"]
 
     def list_sessions(self, limit: int = 20) -> list[sqlite3.Row]:
         return self._conn.execute(
@@ -211,4 +218,76 @@ class Storage:
             LIMIT ?
             """,
             (fts_query, limit),
+        ).fetchall()
+
+    # -- link graph --------------------------------------------------------
+
+    def add_outbound_links(self, page_visit_id: int, links: list[OutboundLink]) -> int:
+        """Catalogue a page's outbound links. Duplicate (page, href) ignored."""
+        with self._conn:
+            cur = self._conn.executemany(
+                "INSERT OR IGNORE INTO outbound_links (page_visit_id, href, anchor_text, rel)"
+                " VALUES (?, ?, ?, ?)",
+                [(page_visit_id, link.href, link.text, link.rel) for link in links],
+            )
+        return cur.rowcount
+
+    def add_nav_edge(
+        self,
+        session_id: int,
+        *,
+        from_url: str | None,
+        to_url: str,
+        transition: str,
+        qualifiers: str,
+        query: str | None,
+        occurred_at: int,
+    ) -> int:
+        """Record a navigation edge. Exact-duplicate edges are ignored."""
+        with self._conn:
+            cur = self._conn.execute(
+                "INSERT OR IGNORE INTO nav_edges"
+                " (session_id, from_url, to_url, transition, qualifiers, query, occurred_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, from_url, to_url, transition, qualifiers, query, occurred_at),
+            )
+        return cur.rowcount
+
+    def mark_link_clicked(self, session_id: int, *, page_url: str, href: str, text: str) -> bool:
+        """Mark an outbound link clicked on the latest visit of page_url in this
+        session. Inserts the row if the link was not in the catalogue (e.g. a
+        dynamically added link). Returns False when the page was never captured
+        (orphan click — dropped by the caller)."""
+        row = self._conn.execute(
+            "SELECT id FROM page_visits WHERE session_id = ? AND url = ?"
+            " ORDER BY visited_at DESC LIMIT 1",
+            (session_id, page_url),
+        ).fetchone()
+        if row is None:
+            return False
+        with self._conn:
+            self._conn.execute(
+                "INSERT INTO outbound_links (page_visit_id, href, anchor_text, clicked)"
+                " VALUES (?, ?, ?, 1)"
+                " ON CONFLICT (page_visit_id, href) DO UPDATE SET clicked = 1",
+                (row["id"], href, text),
+            )
+        return True
+
+    def list_nav_edges(self, session_id: int) -> list[sqlite3.Row]:
+        return self._conn.execute(
+            "SELECT from_url, to_url, transition, qualifiers, query, occurred_at"
+            " FROM nav_edges WHERE session_id = ? ORDER BY occurred_at, id",
+            (session_id,),
+        ).fetchall()
+
+    def list_unfollowed_links(self, session_id: int, limit: int = 50) -> list[sqlite3.Row]:
+        """Outbound links seen but not clicked, for the digest's 'notable
+        un-followed links'."""
+        return self._conn.execute(
+            "SELECT o.href, o.anchor_text, p.url AS page_url"
+            " FROM outbound_links o JOIN page_visits p ON p.id = o.page_visit_id"
+            " WHERE p.session_id = ? AND o.clicked = 0"
+            " ORDER BY p.visited_at, o.id LIMIT ?",
+            (session_id, limit),
         ).fetchall()

@@ -51,6 +51,12 @@ class SessionEndEvent(ProtocolModel):
     ended_at: int = Field(ge=0)
 
 
+class OutboundLink(ProtocolModel):
+    href: str = Field(min_length=1)
+    text: str = ""
+    rel: str = ""
+
+
 class PageCaptureEvent(ProtocolModel):
     type: Literal["page_capture"]
     url: str = Field(min_length=1)
