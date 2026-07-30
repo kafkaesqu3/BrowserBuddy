@@ -65,6 +65,25 @@ class PageCaptureEvent(ProtocolModel):
     text: str = ""
     html: str | None = None  # raw DOM HTML; stored content-addressed, not in SQLite
     container: str | None = None
+    links: list[OutboundLink] = []
+
+
+class LinkClickEvent(ProtocolModel):
+    type: Literal["link_click"]
+    page_url: str = Field(min_length=1)
+    href: str = Field(min_length=1)
+    text: str = ""
+    clicked_at: int = Field(ge=0)
+
+
+class NavEdgeEvent(ProtocolModel):
+    type: Literal["nav_edge"]
+    from_url: str | None = None
+    to_url: str = Field(min_length=1)
+    transition: str = ""
+    qualifiers: str = ""
+    query: str | None = None
+    occurred_at: int = Field(ge=0)
 
 
 class AuthMessage(ProtocolModel):
@@ -84,5 +103,11 @@ class EventEnvelope(ProtocolModel):
     v: int = Field(ge=1)
     seq: int = Field(ge=1)
     event: (
-        TabStateEvent | HistoryVisitsEvent | SessionStartEvent | SessionEndEvent | PageCaptureEvent
+        TabStateEvent
+        | HistoryVisitsEvent
+        | SessionStartEvent
+        | SessionEndEvent
+        | PageCaptureEvent
+        | LinkClickEvent
+        | NavEdgeEvent
     ) = Field(discriminator="type")
