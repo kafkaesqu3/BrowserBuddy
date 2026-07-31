@@ -55,3 +55,25 @@ test("never throws on a pathological document", () => {
   expect(result.text).toBe("");
   expect(typeof result.html).toBe("string");
 });
+
+test("extractLinks returns deduped absolute http(s) links with text and rel", async () => {
+  const { extractLinks } = await import("@src/extract");
+  const doc = loadDocument(`
+    <body>
+      <a href="https://x.com/a">  First  </a>
+      <a href="https://x.com/a">dup</a>
+      <a href="https://y.com" rel="nofollow noopener">Y</a>
+      <a href="mailto:hi@z.com">mail</a>
+      <a>no href</a>
+    </body>`);
+  const links = extractLinks(doc);
+  expect(links.map((l) => l.href)).toEqual(["https://x.com/a", "https://y.com/"]);
+  expect(links[0]!.text).toBe("First"); // whitespace collapsed + trimmed
+  expect(links[1]!.rel).toContain("nofollow");
+});
+
+test("extractLinks caps anchor text length", async () => {
+  const { extractLinks } = await import("@src/extract");
+  const doc = loadDocument(`<body><a href="https://x.com">${"z".repeat(500)}</a></body>`);
+  expect(extractLinks(doc)[0]!.text.length).toBe(300);
+});

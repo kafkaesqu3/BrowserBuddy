@@ -1,4 +1,5 @@
 import { Readability } from "@mozilla/readability";
+import type { OutboundLink } from "./types";
 
 export interface ExtractedPage {
   title: string;
@@ -30,4 +31,23 @@ export function extractPage(doc: Document): ExtractedPage {
     text = body?.textContent?.replace(/\s+/g, " ").trim() ?? "";
   }
   return { title, text, html };
+}
+
+/** Catalogue a document's outbound links: absolute http(s) hrefs only, deduped,
+ * with collapsed/capped anchor text. The content script runs this on every
+ * captured page. Never throws. */
+export function extractLinks(doc: Document): OutboundLink[] {
+  const seen = new Set<string>();
+  const out: OutboundLink[] = [];
+  for (const anchor of Array.from(doc.links) as HTMLAnchorElement[]) {
+    const href = anchor.href; // resolved to absolute by the DOM
+    if (!/^https?:/i.test(href) || seen.has(href)) continue;
+    seen.add(href);
+    out.push({
+      href,
+      text: (anchor.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
+      rel: anchor.rel ?? "",
+    });
+  }
+  return out;
 }
