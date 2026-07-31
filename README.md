@@ -41,3 +41,7 @@ Click the BrowserBuddy toolbar icon → name your session → **Start session**
 (Firefox will ask for page access — that grant is what turns capture on).
 Pages you read are captured (readable text + raw HTML) until you **Stop**.
 Review from the terminal: `buddy sessions`, `buddy search "<anything you read>"`.
+
+Inspect the link graph of a session: `buddy links "<session name>"` — shows how
+you moved between pages (with the search query that led you there) and the
+notable links you saw but didn't follow.
