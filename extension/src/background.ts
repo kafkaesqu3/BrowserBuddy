@@ -194,14 +194,53 @@ async function handlePageMessage(
 
 const NAV_URLS_KEY = "bb:nav-urls"; // per-tab last committed URL, for edge from_url
 
-async function tabUrls(): Promise<Record<number, string>> {
+// storage.session get/set are not transactional; webNavigation events for
+// different tabs interleave, so guard the read-modify-write like EventQueue
+// does — a lost update would drop an edge's from_url (its whole point).
+let navMutex: Promise<unknown> = Promise.resolve();
+function navSerialize<T>(fn: () => Promise<T>): Promise<T> {
+  const next = navMutex.then(fn, fn);
+  navMutex = next.catch(() => undefined);
+  return next;
+}
+
+async function readNavUrls(): Promise<Record<number, string>> {
   return ((await session.get(NAV_URLS_KEY))[NAV_URLS_KEY] as Record<number, string>) ?? {};
 }
 
-async function rememberTabUrl(tabId: number, url: string): Promise<void> {
-  const urls = await tabUrls();
-  urls[tabId] = url;
-  await session.set({ [NAV_URLS_KEY]: urls });
+/** Atomically record tabId's new URL and return its previous one (the edge
+ * origin). */
+function commitTabUrl(tabId: number, url: string): Promise<string | null> {
+  return navSerialize(async () => {
+    const urls = await readNavUrls();
+    const prev = urls[tabId] ?? null;
+    urls[tabId] = url;
+    await session.set({ [NAV_URLS_KEY]: urls });
+    return prev;
+  });
+}
+
+/** Seed a freshly-opened tab's origin with its opener's current URL, so the
+ * child's own onCommitted produces an opener→target edge. */
+function seedTabUrl(tabId: number, sourceTabId: number): Promise<void> {
+  return navSerialize(async () => {
+    const urls = await readNavUrls();
+    const opener = urls[sourceTabId];
+    if (opener) {
+      urls[tabId] = opener;
+      await session.set({ [NAV_URLS_KEY]: urls });
+    }
+  });
+}
+
+function forgetTab(tabId: number): Promise<void> {
+  return navSerialize(async () => {
+    const urls = await readNavUrls();
+    if (tabId in urls) {
+      delete urls[tabId];
+      await session.set({ [NAV_URLS_KEY]: urls });
+    }
+  });
 }
 
 async function handleCommitted(details: {
@@ -212,8 +251,7 @@ async function handleCommitted(details: {
   transitionQualifiers?: string[];
 }): Promise<void> {
   if (details.frameId !== 0) return; // top-frame navigations only
-  const fromUrl = (await tabUrls())[details.tabId] ?? null;
-  await rememberTabUrl(details.tabId, details.url);
+  const fromUrl = await commitTabUrl(details.tabId, details.url);
   const state = await sessionManager.current();
   if (state?.status !== "recording") return;
   const event = navEdgeEvent({
@@ -258,15 +296,7 @@ browser.tabs.onActivated.addListener((info) => {
 browser.tabs.onCreated.addListener(() => scheduleSnapshot());
 browser.tabs.onRemoved.addListener((tabId) => {
   scheduleSnapshot();
-  logged(
-    (async () => {
-      const urls = await tabUrls();
-      if (tabId in urls) {
-        delete urls[tabId];
-        await session.set({ [NAV_URLS_KEY]: urls });
-      }
-    })(),
-  );
+  logged(forgetTab(tabId));
 });
 browser.webNavigation.onCommitted.addListener((details) => {
   logged(handleCommitted(details));
@@ -274,12 +304,7 @@ browser.webNavigation.onCommitted.addListener((details) => {
 // New-tab / new-window opens: seed the child tab's from-URL with the opener's
 // current URL so the child's own onCommitted produces an opener→target edge.
 browser.webNavigation.onCreatedNavigationTarget.addListener((details) => {
-  logged(
-    (async () => {
-      const opener = (await tabUrls())[details.sourceTabId];
-      if (opener) await rememberTabUrl(details.tabId, opener);
-    })(),
-  );
+  logged(seedTabUrl(details.tabId, details.sourceTabId));
 });
 browser.tabs.onUpdated.addListener((_id, changeInfo) => {
   if (changeInfo.url || changeInfo.title) scheduleSnapshot();

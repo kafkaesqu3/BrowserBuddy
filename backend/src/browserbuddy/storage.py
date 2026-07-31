@@ -274,11 +274,11 @@ class Storage:
             )
         return True
 
-    def list_nav_edges(self, session_id: int) -> list[sqlite3.Row]:
+    def list_nav_edges(self, session_id: int, limit: int = 200) -> list[sqlite3.Row]:
         return self._conn.execute(
             "SELECT from_url, to_url, transition, qualifiers, query, occurred_at"
-            " FROM nav_edges WHERE session_id = ? ORDER BY occurred_at, id",
-            (session_id,),
+            " FROM nav_edges WHERE session_id = ? ORDER BY occurred_at, id LIMIT ?",
+            (session_id, limit),
         ).fetchall()
 
     def list_unfollowed_links(self, session_id: int, limit: int = 50) -> list[sqlite3.Row]:

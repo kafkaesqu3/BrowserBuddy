@@ -350,3 +350,20 @@ def test_ws_nav_edge_without_session_gets_error_frame(client, app):
             _envelope(1, {"type": "nav_edge", "to_url": "https://a.com", "occurred_at": 1})
         )
         assert ws.receive_json()["type"] == "error"
+
+
+def test_ws_link_click_without_session_gets_error_frame(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(
+                1,
+                {
+                    "type": "link_click",
+                    "page_url": "https://a.com",
+                    "href": "https://x.com",
+                    "clicked_at": 1,
+                },
+            )
+        )
+        assert ws.receive_json()["type"] == "error"
