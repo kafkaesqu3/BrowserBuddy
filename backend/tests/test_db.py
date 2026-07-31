@@ -92,9 +92,7 @@ def test_v3_migration_adds_link_graph_tables_and_keeps_data(tmp_path):
         "INSERT INTO history_entries (url, title, visit_time, source)"
         " VALUES ('https://keep.me', 'Keep', 1000, 'import')"
     )
-    conn.execute(
-        "INSERT INTO sessions (client_id, name, started_at) VALUES ('c', 's', 1)"
-    )
+    conn.execute("INSERT INTO sessions (client_id, name, started_at) VALUES ('c', 's', 1)")
     conn.commit()
     conn.close()
     conn = db.connect(path)  # re-running migrations applies any new versions

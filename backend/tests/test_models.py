@@ -104,9 +104,12 @@ def test_session_start_requires_nonempty_name():
 def test_page_capture_accepts_links_and_defaults_empty():
     env = EventEnvelope.model_validate(
         {
-            "v": 1, "seq": 1,
+            "v": 1,
+            "seq": 1,
             "event": {
-                "type": "page_capture", "url": "https://a.com", "visited_at": 5,
+                "type": "page_capture",
+                "url": "https://a.com",
+                "visited_at": 5,
                 "links": [{"href": "https://x.com", "text": "X", "rel": "nofollow"}],
             },
         }
@@ -114,7 +117,8 @@ def test_page_capture_accepts_links_and_defaults_empty():
     assert env.event.links[0].href == "https://x.com"
     env2 = EventEnvelope.model_validate(
         {
-            "v": 1, "seq": 2,
+            "v": 1,
+            "seq": 2,
             "event": {"type": "page_capture", "url": "https://a.com", "visited_at": 5},
         }
     )
@@ -124,11 +128,16 @@ def test_page_capture_accepts_links_and_defaults_empty():
 def test_nav_edge_and_link_click_validate():
     env = EventEnvelope.model_validate(
         {
-            "v": 1, "seq": 1,
+            "v": 1,
+            "seq": 1,
             "event": {
-                "type": "nav_edge", "to_url": "https://a.com", "occurred_at": 7,
-                "from_url": "https://google.com/search?q=x", "transition": "link",
-                "qualifiers": "client_redirect", "query": "x",
+                "type": "nav_edge",
+                "to_url": "https://a.com",
+                "occurred_at": 7,
+                "from_url": "https://google.com/search?q=x",
+                "transition": "link",
+                "qualifiers": "client_redirect",
+                "query": "x",
             },
         }
     )
@@ -136,17 +145,21 @@ def test_nav_edge_and_link_click_validate():
     assert env.event.from_url == "https://google.com/search?q=x"
     env2 = EventEnvelope.model_validate(
         {
-            "v": 1, "seq": 2,
+            "v": 1,
+            "seq": 2,
             "event": {"type": "nav_edge", "to_url": "https://a.com", "occurred_at": 7},
         }
     )
     assert env2.event.from_url is None and env2.event.query is None
     env3 = EventEnvelope.model_validate(
         {
-            "v": 1, "seq": 3,
+            "v": 1,
+            "seq": 3,
             "event": {
-                "type": "link_click", "page_url": "https://a.com",
-                "href": "https://x.com", "clicked_at": 9,
+                "type": "link_click",
+                "page_url": "https://a.com",
+                "href": "https://x.com",
+                "clicked_at": 9,
             },
         }
     )
