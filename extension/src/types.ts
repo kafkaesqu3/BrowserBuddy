@@ -32,6 +32,7 @@ export interface PageCapture {
   text: string;
   html: string | null;
   container: string | null;
+  links: OutboundLink[];
 }
 
 export type EventPayload =
@@ -39,7 +40,14 @@ export type EventPayload =
   | { type: "history_visits"; visits: HistoryVisit[] }
   | { type: "session_start"; name: string; started_at: number }
   | { type: "session_end"; ended_at: number }
-  | ({ type: "page_capture" } & PageCapture);
+  | ({ type: "page_capture" } & PageCapture)
+  | {
+      type: "link_click";
+      page_url: string;
+      href: string;
+      text: string;
+      clicked_at: number;
+    };
 
 export interface EventEnvelope {
   v: number;

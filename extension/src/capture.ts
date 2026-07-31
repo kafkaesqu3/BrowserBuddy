@@ -1,9 +1,13 @@
-import type { EventPayload } from "./types";
+import type { EventPayload, OutboundLink } from "./types";
 
 /** Cap on inline raw HTML. Larger pages keep their extracted text; the raw
  * DOM is dropped (bounds WS frame size — the server caps frames at 16 MB,
  * and multi-MB outliers are rarely worth archiving). */
 export const MAX_HTML_CHARS = 2_000_000;
+
+/** Cap on outbound links catalogued per page (bounds WS frame size alongside
+ * the 2 MB HTML cap). */
+export const MAX_LINKS = 1000;
 
 export interface PageMessage {
   type?: string;
@@ -11,6 +15,7 @@ export interface PageMessage {
   title?: string;
   text?: string;
   html?: string;
+  links?: OutboundLink[];
 }
 
 /** Convert a content-script "bb:page" message into a page_capture event.
@@ -39,5 +44,29 @@ export function pageCaptureEvent(
     text,
     html,
     container,
+    links: (message.links ?? []).slice(0, MAX_LINKS),
+  };
+}
+
+export interface ClickMessage {
+  type?: string;
+  page_url?: string;
+  href?: string;
+  text?: string;
+}
+
+/** Convert a content-script "bb:click" message into a link_click event.
+ * Returns null when the page or target href is missing. */
+export function linkClickEvent(
+  message: ClickMessage,
+  now: () => number = Date.now,
+): (EventPayload & { type: "link_click" }) | null {
+  if (!message.page_url || !message.href) return null;
+  return {
+    type: "link_click",
+    page_url: message.page_url,
+    href: message.href,
+    text: message.text ?? "",
+    clicked_at: now(),
   };
 }

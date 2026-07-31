@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { MAX_HTML_CHARS, pageCaptureEvent } from "@src/capture";
+import { MAX_HTML_CHARS, MAX_LINKS, linkClickEvent, pageCaptureEvent } from "@src/capture";
 
 const msg = (over: Record<string, unknown> = {}) => ({
   type: "bb:page",
@@ -20,6 +20,7 @@ test("converts a content-script message to a page_capture event", () => {
     text: "body text",
     html: "<html><body>body text</body></html>",
     container: "Research",
+    links: [],
   });
 });
 
@@ -43,4 +44,34 @@ test("oversized html is dropped but the text capture survives", () => {
 test("defaults: missing title becomes empty string", () => {
   const event = pageCaptureEvent(msg({ title: undefined }), null, () => 1);
   expect(event!.title).toBe("");
+});
+
+test("pageCaptureEvent carries outbound links, capped at MAX_LINKS", () => {
+  const many = Array.from({ length: MAX_LINKS + 5 }, (_, i) => ({
+    href: `https://x.com/${i}`, text: "t", rel: "",
+  }));
+  const event = pageCaptureEvent(msg({ links: many }), null, () => 1);
+  expect(event!.links).toHaveLength(MAX_LINKS);
+  expect(event!.links[0]!.href).toBe("https://x.com/0");
+});
+
+test("pageCaptureEvent defaults links to [] when absent", () => {
+  const event = pageCaptureEvent(msg(), null, () => 1);
+  expect(event!.links).toEqual([]);
+});
+
+test("linkClickEvent converts a bb:click message", () => {
+  const event = linkClickEvent(
+    { type: "bb:click", page_url: "https://a.com", href: "https://x.com", text: "X" },
+    () => 1_000,
+  );
+  expect(event).toEqual({
+    type: "link_click", page_url: "https://a.com", href: "https://x.com",
+    text: "X", clicked_at: 1_000,
+  });
+});
+
+test("linkClickEvent rejects messages missing page_url or href", () => {
+  expect(linkClickEvent({ page_url: "", href: "https://x.com" }, () => 1)).toBeNull();
+  expect(linkClickEvent({ page_url: "https://a.com", href: undefined }, () => 1)).toBeNull();
 });
