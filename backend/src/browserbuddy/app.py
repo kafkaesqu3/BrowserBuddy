@@ -13,6 +13,8 @@ from browserbuddy.models import (
     AuthMessage,
     EventEnvelope,
     HistoryVisitsEvent,
+    LinkClickEvent,
+    NavEdgeEvent,
     PageCaptureEvent,
     SessionEndEvent,
     SessionStartEvent,
@@ -113,7 +115,7 @@ def _apply_event(
         if active is None:
             raise NoActiveSessionError("page_capture with no active session")
         html_key = blobs.put(event.html.encode()) if event.html else None
-        storage.add_page_visit(
+        page_visit_id = storage.add_page_visit(
             active["id"],
             url=event.url,
             title=event.title,
@@ -121,6 +123,28 @@ def _apply_event(
             text=event.text,
             html_key=html_key,
             container=event.container,
+        )
+        if event.links:
+            storage.add_outbound_links(page_visit_id, event.links)
+    elif isinstance(event, NavEdgeEvent):
+        active = storage.get_active_session(client_id)
+        if active is None:
+            raise NoActiveSessionError("nav_edge with no active session")
+        storage.add_nav_edge(
+            active["id"],
+            from_url=event.from_url,
+            to_url=event.to_url,
+            transition=event.transition,
+            qualifiers=event.qualifiers,
+            query=event.query,
+            occurred_at=event.occurred_at,
+        )
+    elif isinstance(event, LinkClickEvent):
+        active = storage.get_active_session(client_id)
+        if active is None:
+            raise NoActiveSessionError("link_click with no active session")
+        storage.mark_link_clicked(
+            active["id"], page_url=event.page_url, href=event.href, text=event.text
         )
     else:  # pragma: no cover - unreachable until the union grows
         raise AssertionError(f"unhandled event type: {type(event).__name__}")

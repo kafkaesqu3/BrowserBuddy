@@ -267,3 +267,62 @@ def test_ws_stale_connection_cannot_apply_old_snapshot(client, app):
         assert stale.receive_json() == {"type": "ack", "seq": 1}
     tabs = app.state.storage.list_open_tabs()
     assert [t["url"] for t in tabs] == ["https://new.com"]
+
+
+def test_ws_page_capture_stores_outbound_links(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 100}))
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+        ws.send_json(
+            _envelope(2, {
+                "type": "page_capture", "url": "https://a.com", "visited_at": 150,
+                "text": "body", "links": [{"href": "https://x.com", "text": "X"}],
+            })
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+    storage = app.state.storage
+    sid = storage.list_sessions()[0]["id"]
+    assert {r["href"] for r in storage.list_unfollowed_links(sid)} == {"https://x.com"}
+
+
+def test_ws_nav_edge_and_link_click(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 100}))
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+        ws.send_json(
+            _envelope(2, {
+                "type": "page_capture", "url": "https://a.com", "visited_at": 150,
+                "text": "b", "links": [{"href": "https://x.com", "text": "X"}],
+            })
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+        ws.send_json(
+            _envelope(3, {
+                "type": "nav_edge", "from_url": "https://a.com", "to_url": "https://x.com",
+                "transition": "link", "occurred_at": 160,
+            })
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+        ws.send_json(
+            _envelope(4, {
+                "type": "link_click", "page_url": "https://a.com", "href": "https://x.com",
+                "text": "X", "clicked_at": 165,
+            })
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 4}
+    storage = app.state.storage
+    sid = storage.list_sessions()[0]["id"]
+    edges = storage.list_nav_edges(sid)
+    assert edges[0]["to_url"] == "https://x.com"
+    assert all(r["href"] != "https://x.com" for r in storage.list_unfollowed_links(sid))
+
+
+def test_ws_nav_edge_without_session_gets_error_frame(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(1, {"type": "nav_edge", "to_url": "https://a.com", "occurred_at": 1})
+        )
+        assert ws.receive_json()["type"] == "error"
