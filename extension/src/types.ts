@@ -19,6 +19,12 @@ export interface TabRecord {
   active_ms: number;
 }
 
+export interface OutboundLink {
+  href: string;
+  text: string;
+  rel: string;
+}
+
 export interface PageCapture {
   url: string;
   title: string;
