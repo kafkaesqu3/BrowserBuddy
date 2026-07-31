@@ -47,6 +47,15 @@ export type EventPayload =
       href: string;
       text: string;
       clicked_at: number;
+    }
+  | {
+      type: "nav_edge";
+      from_url: string | null;
+      to_url: string;
+      transition: string;
+      qualifiers: string;
+      query: string | null;
+      occurred_at: number;
     };
 
 export interface EventEnvelope {
