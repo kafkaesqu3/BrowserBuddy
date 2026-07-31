@@ -157,3 +157,55 @@ def test_search_includes_session_pages(tmp_path):
     assert result.exit_code == 0
     assert "https://arxiv.org/abs/8" in result.output
     assert "vector research" in result.output
+
+
+def _seed_links(tmp_path):
+    from browserbuddy import db
+    from browserbuddy.models import OutboundLink
+    from browserbuddy.storage import Storage
+
+    conn = db.connect(tmp_path / "buddy.db")
+    s = Storage(conn)
+    sid = s.start_session("ext-1", "graph session", started_at=1720000000000)
+    pid = s.add_page_visit(
+        sid,
+        url="https://a.com",
+        title="A",
+        visited_at=1720000001000,
+        text="",
+        html_key=None,
+        container=None,
+    )
+    s.add_outbound_links(pid, [OutboundLink(href="https://unfollowed.com", text="Later")])
+    s.add_nav_edge(
+        sid,
+        from_url="https://google.com/search?q=vectors",
+        to_url="https://a.com",
+        transition="link",
+        qualifiers="",
+        query="vectors",
+        occurred_at=1720000000500,
+    )
+    conn.close()
+
+
+def test_links_shows_edges_and_unfollowed(tmp_path):
+    _seed_links(tmp_path)
+    result = runner.invoke(app, ["links", "graph session"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "https://a.com" in result.output
+    assert 'q="vectors"' in result.output
+    assert "https://unfollowed.com" in result.output
+
+
+def test_links_defaults_to_latest_session(tmp_path):
+    _seed_links(tmp_path)
+    result = runner.invoke(app, ["links"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "graph session" in result.output
+
+
+def test_links_no_sessions(tmp_path):
+    result = runner.invoke(app, ["links"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "No sessions" in result.output

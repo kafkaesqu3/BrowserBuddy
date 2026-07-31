@@ -17,6 +17,15 @@ def _fmt_time(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M")
 
 
+def _resolve_session(rows: list, selector: str | None):
+    """Pick a session row by id, exact name, or (default) the newest."""
+    if selector is None:
+        return rows[0] if rows else None
+    if selector.isdigit():
+        return next((r for r in rows if r["id"] == int(selector)), None)
+    return next((r for r in rows if r["name"] == selector), None)
+
+
 @app.command()
 def serve() -> None:
     """Run the ingest server (foreground)."""
@@ -111,6 +120,41 @@ def search(
                 f"  [{row['session_name']}]"
             )
             typer.echo(f"                  {row['url']}")
+
+
+@app.command()
+def links(
+    session: str | None = typer.Argument(  # noqa: B008 — Typer requires Argument() in defaults
+        None, help="Session id or name (default: newest)."
+    ),
+) -> None:
+    """Show a session's navigation edges and notable un-followed outbound links."""
+    conn = db.connect(get_settings().db_path)
+    try:
+        storage = Storage(conn)
+        rows = storage.list_sessions(limit=200)
+        target = _resolve_session(rows, session)
+        if target is None:
+            typer.echo("No matching session." if session else "No sessions recorded yet.")
+            return
+        edges = storage.list_nav_edges(target["id"])
+        unfollowed = storage.list_unfollowed_links(target["id"])
+    finally:
+        conn.close()
+    typer.echo(f"Session: {target['name']} (id {target['id']})")
+    typer.echo("-- navigation edges --")
+    if not edges:
+        typer.echo("  (none)")
+    for edge in edges:
+        query = f'  q="{edge["query"]}"' if edge["query"] else ""
+        origin = edge["from_url"] or "(start)"
+        typer.echo(f"  {origin} → {edge['to_url']}  [{edge['transition'] or '?'}]{query}")
+    typer.echo("-- notable un-followed links --")
+    if not unfollowed:
+        typer.echo("  (none)")
+    for link in unfollowed:
+        label = f"  — {link['anchor_text']}" if link["anchor_text"] else ""
+        typer.echo(f"  {link['href']}{label}")
 
 
 @app.command()
