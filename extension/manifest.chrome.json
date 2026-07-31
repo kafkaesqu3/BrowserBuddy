@@ -1,4 +1,12 @@
 {
-  "permissions": ["tabs", "history", "storage", "alarms", "scripting", "unlimitedStorage"],
+  "permissions": [
+    "tabs",
+    "history",
+    "storage",
+    "alarms",
+    "scripting",
+    "unlimitedStorage",
+    "webNavigation"
+  ],
   "background": { "service_worker": "background.js", "type": "module" }
 }

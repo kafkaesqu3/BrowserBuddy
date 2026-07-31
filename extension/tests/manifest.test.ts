@@ -9,6 +9,10 @@ const baseManifest = JSON.parse(
   readFileSync(new URL("../manifest.base.json", import.meta.url), "utf8"),
 ) as { host_permissions?: string[]; optional_host_permissions?: string[] };
 
+const chromeOverlay = JSON.parse(
+  readFileSync(new URL("../manifest.chrome.json", import.meta.url), "utf8"),
+) as { permissions?: string[] };
+
 test("Firefox CSP override exists and omits upgrade-insecure-requests", () => {
   // Firefox's MV3 DEFAULT extension CSP is "script-src 'self';
   // upgrade-insecure-requests", which silently rewrites the background
@@ -30,4 +34,10 @@ test("<all_urls> is a runtime-grantable optional host permission, not install-ti
   // session_start is never enqueued (tabs still sync; sessions never do).
   expect(baseManifest.optional_host_permissions).toEqual(["<all_urls>"]);
   expect(baseManifest.host_permissions).toBeUndefined();
+});
+
+test("webNavigation is granted on both targets (nav-edge capture)", () => {
+  const ff = firefoxOverlay as unknown as { permissions?: string[] };
+  expect(ff.permissions).toContain("webNavigation");
+  expect(chromeOverlay.permissions).toContain("webNavigation");
 });
