@@ -1,5 +1,6 @@
 import { gapFillVisits, type HistoryApi } from "./history";
-import { pageCaptureEvent, type PageMessage } from "./capture";
+import { linkClickEvent, pageCaptureEvent, type ClickMessage, type PageMessage } from "./capture";
+import { navEdgeEvent } from "./navigation";
 import { EventQueue } from "./queue";
 import { loadSettings } from "./settings";
 import { SessionManager } from "./sessions";
@@ -191,6 +192,51 @@ async function handlePageMessage(
   await (await ensureClient()).notifyEnqueued();
 }
 
+const NAV_URLS_KEY = "bb:nav-urls"; // per-tab last committed URL, for edge from_url
+
+async function tabUrls(): Promise<Record<number, string>> {
+  return ((await session.get(NAV_URLS_KEY))[NAV_URLS_KEY] as Record<number, string>) ?? {};
+}
+
+async function rememberTabUrl(tabId: number, url: string): Promise<void> {
+  const urls = await tabUrls();
+  urls[tabId] = url;
+  await session.set({ [NAV_URLS_KEY]: urls });
+}
+
+async function handleCommitted(details: {
+  tabId: number;
+  frameId: number;
+  url: string;
+  transitionType?: string;
+  transitionQualifiers?: string[];
+}): Promise<void> {
+  if (details.frameId !== 0) return; // top-frame navigations only
+  const fromUrl = (await tabUrls())[details.tabId] ?? null;
+  await rememberTabUrl(details.tabId, details.url);
+  const state = await sessionManager.current();
+  if (state?.status !== "recording") return;
+  const event = navEdgeEvent({
+    fromUrl,
+    toUrl: details.url,
+    transition: details.transitionType,
+    qualifiers: details.transitionQualifiers,
+    occurredAt: Date.now(),
+  });
+  if (!event) return;
+  await queue.enqueue(event);
+  await (await ensureClient()).notifyEnqueued();
+}
+
+async function handleClickMessage(msg: ClickMessage): Promise<void> {
+  const state = await sessionManager.current();
+  if (state?.status !== "recording") return;
+  const event = linkClickEvent(msg);
+  if (!event) return;
+  await queue.enqueue(event);
+  await (await ensureClient()).notifyEnqueued();
+}
+
 // ---------------------------------------------------------------------------
 // Tab / window / history listeners
 // ---------------------------------------------------------------------------
@@ -210,7 +256,31 @@ browser.tabs.onActivated.addListener((info) => {
     .catch(() => scheduleSnapshot()); // window can close mid-switch
 });
 browser.tabs.onCreated.addListener(() => scheduleSnapshot());
-browser.tabs.onRemoved.addListener(() => scheduleSnapshot());
+browser.tabs.onRemoved.addListener((tabId) => {
+  scheduleSnapshot();
+  logged(
+    (async () => {
+      const urls = await tabUrls();
+      if (tabId in urls) {
+        delete urls[tabId];
+        await session.set({ [NAV_URLS_KEY]: urls });
+      }
+    })(),
+  );
+});
+browser.webNavigation.onCommitted.addListener((details) => {
+  logged(handleCommitted(details));
+});
+// New-tab / new-window opens: seed the child tab's from-URL with the opener's
+// current URL so the child's own onCommitted produces an opener→target edge.
+browser.webNavigation.onCreatedNavigationTarget.addListener((details) => {
+  logged(
+    (async () => {
+      const opener = (await tabUrls())[details.sourceTabId];
+      if (opener) await rememberTabUrl(details.tabId, opener);
+    })(),
+  );
+});
 browser.tabs.onUpdated.addListener((_id, changeInfo) => {
   if (changeInfo.url || changeInfo.title) scheduleSnapshot();
 });
@@ -264,6 +334,10 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (msg?.type === "bb:page") {
     logged(handlePageMessage(msg as PageMessage, sender.tab?.cookieStoreId));
     return false; // no reply — content script fire-and-forget
+  }
+  if (msg?.type === "bb:click") {
+    logged(handleClickMessage(message as ClickMessage));
+    return false; // fire-and-forget
   }
   if (msg?.type === "bb:session") {
     handleSessionCommand(msg as SessionCommand).then(sendResponse, async (e) => {
