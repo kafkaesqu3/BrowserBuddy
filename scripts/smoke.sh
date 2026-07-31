@@ -88,6 +88,7 @@ port_open() {
 # --- backend --------------------------------------------------------------
 OWN_BACKEND=0
 BACKEND_PID=""
+WEBEXT_PID=""
 if port_open; then
   log "Backend already listening on $HOST:$PORT — reusing it (leaving its lifecycle alone)"
 else
@@ -100,6 +101,12 @@ else
 fi
 
 cleanup() {
+  if [ -n "$WEBEXT_PID" ]; then
+    log "Stopping web-ext (pid $WEBEXT_PID)"
+    kill "$WEBEXT_PID" 2>/dev/null || true
+    pkill -P "$WEBEXT_PID" 2>/dev/null || true   # reap Firefox child too
+    wait "$WEBEXT_PID" 2>/dev/null || true
+  fi
   if [ "$OWN_BACKEND" = 1 ] && [ -n "$BACKEND_PID" ]; then
     log "Stopping backend (pid $BACKEND_PID)"
     kill "$BACKEND_PID" 2>/dev/null || true
@@ -157,12 +164,14 @@ cat <<EOF
 
 EOF
 
-# --- browser (foreground; blocks until Firefox is closed) -----------------
+# --- browser (background so INT trap fires immediately on Ctrl-C) ---------
 log "Launching Firefox via web-ext ..."
 "$WEB_EXT" run \
   --source-dir "$DIST" \
   --firefox-profile "$PROFILE_DIR" \
   --profile-create-if-missing \
-  --keep-profile-changes
+  --keep-profile-changes &
+WEBEXT_PID=$!
+wait "$WEBEXT_PID" || true
 
 log "Firefox closed."
