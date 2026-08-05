@@ -157,19 +157,45 @@ Each case lists the **feature** it verifies and an explicit **PASS** criterion.
 
 ## Results
 
+Run: 2026-07-31, branch `m3b-slice-a-link-graph`, Firefox 153, extension rebuilt
+from this branch. Driven **headful** and automated via the `browserbuddy-firefox`
+MCP server (Selenium/geckodriver); pages: English Wikipedia + DuckDuckGo (TC5).
+
 | # | Case | Result | Notes |
 |---|------|--------|-------|
-| TC1 | Baseline capture (regression) | ☐ | |
-| TC2 | Outbound-link catalogue | ☐ | |
-| TC3 | Clicked link leaves un-followed | ☐ | |
-| TC4 | Nav edges from link follows | ☐ | |
-| TC5 | Search-engine provenance | ☐ | |
-| TC6 | New-tab opener → target edge | ☐ | |
-| TC7 | Non-navigating click captured | ☐ | |
-| TC8 | Reload no self-edge | ☐ | |
-| TC9 | Pause captures nothing | ☐ | |
-| TC10 | Concurrent-tab provenance | ☐ | |
-| TC11 | CLI selection & format | ☐ | |
+| TC1 | Baseline capture (regression) | ✅ PASS | `slice-a` closed, 2 pages; `search "neighbor"` returns the page. |
+| TC2 | Outbound-link catalogue | ✅ PASS | 565 outbound links captured (incl. prose like `Machine_learning`). Digest surfacing was chrome-only at first (Finding 1) — since resolved: links are now flagged `in_main` and the digest shows article content. |
+| TC3 | Clicked link leaves un-followed | ✅ PASS | Clicked `Machine_learning`; absent from the un-followed set afterward. |
+| TC4 | Nav edges from link follows | ✅ PASS | `Vector_database → Machine_learning → Machine_Learning_(journal)`, both `[link]`. |
+| TC5 | Search-engine provenance | ✅ PASS | DuckDuckGo → HNSW result; edge annotated `q="hierarchical navigable small worlds"`. |
+| TC6 | New-tab opener → target edge | ✅ PASS | Cmd+click new tab → `Vector_database → Machine_learning` (origin is the opener, not `(start)`). |
+| TC7 | Non-navigating click captured | ✅ PASS | Middle-click background tab; href recorded as clicked (absent from un-followed) with no same-tab nav edge. |
+| TC8 | Reload no self-edge | ✅ PASS | Reloaded ×2; no `X → X` self-edge. |
+| TC9 | Pause captures nothing | ✅ PASS | 2 pages captured (A + resumed page); the two paused pages excluded from the count. |
+| TC10 | Concurrent-tab provenance | ✅ PASS | tab1 `Vector_database → Machine_learning`, tab2 `Cluster_analysis → Machine_learning`; each edge keeps its own tab's origin (no cross-contamination). |
+| TC11 | CLI selection & format | ✅ PASS | No-arg targets newest; name/id select correctly; `Session:` / edges / un-followed sections present. |
+
+### Findings (non-blocking)
+
+1. **`notable un-followed links` surfaced boilerplate, not content — RESOLVED
+   2026-08-05.** `Storage.list_unfollowed_links` used `ORDER BY p.visited_at,
+   o.id LIMIT 50` over links inserted in DOM order, and Wikipedia (and most
+   sites) emit sidebar / TOC / footer / interwiki chrome *before* article prose —
+   so on a 565-link page the digest was 50 chrome links and none of the notable
+   content links.
+   **Fix:** the content script now flags each captured link `in_main` when it
+   sits inside Readability's main-content region (vs. nav/header/footer/sidebar/
+   ads); the digest filters to `in_main = 1`. The full catalogue is still stored
+   (in_main=0 links retained for M4 ranking/analysis). Re-verified live: on the
+   same page, 339/565 links flagged `in_main`, digest now leads with
+   `Machine learning`, `Deep learning`, `embeddings`, `nearest neighbor search`,
+   … and no nav/footer/interwiki chrome. (extension `extract.ts`; backend
+   migration v4 + `list_unfollowed_links`.)
+
+2. **Stale `from_url` across sessions (expected, per design note).** The first
+   edge of a new session in a tab left open from a prior session inherits that
+   tab's last URL as origin (e.g. `K-d_tree → Vector_database` when opening the
+   `concurrent` session). Matches the documented "`from_url` may be stale" quirk.
 
 ## Teardown
 

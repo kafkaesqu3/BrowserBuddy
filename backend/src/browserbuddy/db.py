@@ -131,6 +131,11 @@ MIGRATIONS: list[str] = [
 
     CREATE INDEX idx_outbound_links_page ON outbound_links (page_visit_id);
     """,
+    # v4: flag whether an outbound link sits in the page's main readable content
+    # (vs. site chrome), so the digest can surface notable links, not boilerplate.
+    """
+    ALTER TABLE outbound_links ADD COLUMN in_main INTEGER NOT NULL DEFAULT 1;
+    """,
 ]
 
 

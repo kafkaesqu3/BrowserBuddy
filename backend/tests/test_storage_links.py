@@ -45,6 +45,19 @@ def test_outbound_links_insert_dedup_and_unfollowed(storage):
     assert {r["href"] for r in unfollowed} == {"https://x.com", "https://y.com"}
 
 
+def test_unfollowed_excludes_chrome_links_by_in_main(storage):
+    sid, pid = _page(storage)
+    storage.add_outbound_links(
+        pid,
+        [
+            OutboundLink(href="https://article.com/deep", text="Content", in_main=True),
+            OutboundLink(href="https://site.com/login", text="Log in", in_main=False),
+        ],
+    )
+    hrefs = {r["href"] for r in storage.list_unfollowed_links(sid)}
+    assert hrefs == {"https://article.com/deep"}  # chrome link hidden from the digest
+
+
 def test_mark_link_clicked_marks_catalogued_and_inserts_dynamic(storage):
     sid, pid = _page(storage)
     storage.add_outbound_links(pid, [OutboundLink(href="https://x.com", text="X")])

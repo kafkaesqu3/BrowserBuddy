@@ -226,9 +226,13 @@ class Storage:
         """Catalogue a page's outbound links. Duplicate (page, href) ignored."""
         with self._conn:
             cur = self._conn.executemany(
-                "INSERT OR IGNORE INTO outbound_links (page_visit_id, href, anchor_text, rel)"
-                " VALUES (?, ?, ?, ?)",
-                [(page_visit_id, link.href, link.text, link.rel) for link in links],
+                "INSERT OR IGNORE INTO outbound_links"
+                " (page_visit_id, href, anchor_text, rel, in_main)"
+                " VALUES (?, ?, ?, ?, ?)",
+                [
+                    (page_visit_id, link.href, link.text, link.rel, int(link.in_main))
+                    for link in links
+                ],
             )
         return cur.rowcount
 
@@ -283,11 +287,13 @@ class Storage:
 
     def list_unfollowed_links(self, session_id: int, limit: int = 50) -> list[sqlite3.Row]:
         """Outbound links seen but not clicked, for the digest's 'notable
-        un-followed links'."""
+        un-followed links'. Restricted to main-content links (in_main = 1) so the
+        digest surfaces article links, not site chrome; the full catalogue is
+        still stored for later ranking/analysis."""
         return self._conn.execute(
             "SELECT o.href, o.anchor_text, p.url AS page_url"
             " FROM outbound_links o JOIN page_visits p ON p.id = o.page_visit_id"
-            " WHERE p.session_id = ? AND o.clicked = 0"
+            " WHERE p.session_id = ? AND o.clicked = 0 AND o.in_main = 1"
             " ORDER BY p.visited_at, o.id LIMIT ?",
             (session_id, limit),
         ).fetchall()

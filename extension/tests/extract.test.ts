@@ -77,3 +77,29 @@ test("extractLinks caps anchor text length", async () => {
   const doc = loadDocument(`<body><a href="https://x.com">${"z".repeat(500)}</a></body>`);
   expect(extractLinks(doc)[0]!.text.length).toBe(300);
 });
+
+test("extractLinks flags in-content links in_main and chrome links not", async () => {
+  const { extractLinks } = await import("@src/extract");
+  const prose =
+    "<p>Vector databases store embeddings for similarity search; this sentence " +
+    'repeats to give Readability enough signal to lock onto the <a href="https://in.example/deep">main article</a> region confidently. ';
+  const doc = loadDocument(`
+    <body>
+      <nav><a href="https://chrome.example/home">Home</a></nav>
+      <article>
+        <h1>Understanding Vector Databases</h1>
+        ${prose.repeat(8)}</p>
+      </article>
+      <footer><a href="https://chrome.example/legal">Legal</a></footer>
+    </body>`);
+  const byHref = Object.fromEntries(extractLinks(doc).map((l) => [l.href, l.in_main]));
+  expect(byHref["https://in.example/deep"]).toBe(true);
+  expect(byHref["https://chrome.example/home"]).toBe(false);
+  expect(byHref["https://chrome.example/legal"]).toBe(false);
+});
+
+test("extractLinks flags all links in_main when no article is detected", async () => {
+  const { extractLinks } = await import("@src/extract");
+  const doc = loadDocument('<body><a href="https://x.com/a">a</a></body>');
+  expect(extractLinks(doc)[0]!.in_main).toBe(true); // no main region → don't hide anything
+});

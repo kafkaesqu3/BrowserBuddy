@@ -33,10 +33,40 @@ export function extractPage(doc: Document): ExtractedPage {
   return { title, text, html };
 }
 
+/** The set of absolute http(s) hrefs that live inside the page's main readable
+ * content, as identified by Readability. Used to flag which catalogued links
+ * are article content vs. site chrome (nav/header/footer/sidebar/ads).
+ *
+ * Runs on a clone (Readability mutates) and reads hrefs from the parsed article
+ * HTML, which Readability has already resolved to absolute URLs — so they match
+ * the live DOM's `anchor.href`. Returns an empty set for non-article pages or on
+ * any failure; extractLinks treats "empty" as "cannot tell" (see below). */
+function readableHrefs(doc: Document): Set<string> {
+  const set = new Set<string>();
+  try {
+    const article = new Readability(doc.cloneNode(true) as Document).parse();
+    if (!article?.content) return set;
+    const parsed = new DOMParser().parseFromString(article.content, "text/html");
+    for (const anchor of Array.from(parsed.links) as HTMLAnchorElement[]) {
+      if (/^https?:/i.test(anchor.href)) set.add(anchor.href);
+    }
+  } catch {
+    // Non-article page or parser failure: leave empty.
+  }
+  return set;
+}
+
 /** Catalogue a document's outbound links: absolute http(s) hrefs only, deduped,
- * with collapsed/capped anchor text. The content script runs this on every
- * captured page. Never throws. */
+ * with collapsed/capped anchor text. Each link is flagged `in_main` when it sits
+ * inside the main readable content. The content script runs this on every
+ * captured page. Never throws.
+ *
+ * When Readability finds no article (empty href set), every link is flagged
+ * `in_main` — with no detectable main region we cannot single out chrome, so we
+ * fall back to treating all links as content rather than hiding them all. */
 export function extractLinks(doc: Document): OutboundLink[] {
+  const mainHrefs = readableHrefs(doc);
+  const noMainRegion = mainHrefs.size === 0;
   const seen = new Set<string>();
   const out: OutboundLink[] = [];
   for (const anchor of Array.from(doc.links) as HTMLAnchorElement[]) {
@@ -47,6 +77,7 @@ export function extractLinks(doc: Document): OutboundLink[] {
       href,
       text: (anchor.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 300),
       rel: anchor.rel ?? "",
+      in_main: noMainRegion || mainHrefs.has(href),
     });
   }
   return out;

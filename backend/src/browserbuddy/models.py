@@ -55,6 +55,9 @@ class OutboundLink(ProtocolModel):
     href: str = Field(min_length=1)
     text: str = ""
     rel: str = ""
+    # True when the anchor is in the page's main readable content vs. site
+    # chrome. Defaults True so links from a pre-in_main extension stay visible.
+    in_main: bool = True
 
 
 class PageCaptureEvent(ProtocolModel):

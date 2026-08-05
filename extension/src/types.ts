@@ -23,6 +23,11 @@ export interface OutboundLink {
   href: string;
   text: string;
   rel: string;
+  // True when the anchor sits inside the page's main readable content
+  // (per Readability) rather than site chrome — nav, header, footer, sidebar,
+  // ads. The full catalogue is still captured; this only flags which links are
+  // article content so the backend digest can surface the notable ones.
+  in_main: boolean;
 }
 
 export interface PageCapture {

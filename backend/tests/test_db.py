@@ -96,9 +96,29 @@ def test_v3_migration_adds_link_graph_tables_and_keeps_data(tmp_path):
     conn.commit()
     conn.close()
     conn = db.connect(path)  # re-running migrations applies any new versions
-    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == 3
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 3
     tables = _tables(conn)
     assert {"nav_edges", "outbound_links"} <= tables
     assert conn.execute("SELECT COUNT(*) FROM history_entries").fetchone()[0] == 1
     assert conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0] == 1
+    conn.close()
+
+
+def test_v4_migration_adds_in_main_column_and_keeps_data(tmp_path, monkeypatch):
+    path = tmp_path / "t.db"
+    # Build a v3 DB with an outbound link, then upgrade to v4.
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:3])
+    conn = db.connect(path)
+    conn.execute("INSERT INTO sessions (client_id, name, started_at) VALUES ('c', 's', 1)")
+    conn.execute(
+        "INSERT INTO page_visits (session_id, url, visited_at) VALUES (1, 'https://a.com', 10)"
+    )
+    conn.execute("INSERT INTO outbound_links (page_visit_id, href) VALUES (1, 'https://x.com')")
+    conn.commit()
+    conn.close()
+    monkeypatch.undo()
+    conn = db.connect(path)  # applies v4 on top of v3 data
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 4
+    # Pre-existing row backfills to in_main = 1 (default: visible).
+    assert conn.execute("SELECT in_main FROM outbound_links").fetchone()[0] == 1
     conn.close()
