@@ -1,0 +1,9 @@
+  {
+    "mcpServers": {
+      "browserbuddy-firefox": {
+        "command": "node",
+        "args": ["index.mjs"],
+        "cwd": "/Users/david/Projects/BrowserBuddy/scripts/browser-mcp"
+      }
+    }
+  }

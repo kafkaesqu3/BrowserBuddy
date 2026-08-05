@@ -1,0 +1,18 @@
+{
+  "name": "browserbuddy-browser-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MCP server that drives Firefox with the BrowserBuddy extension for autonomous smoke testing.",
+  "bin": {
+    "browserbuddy-mcp": "index.mjs"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "selenium-webdriver": "^4.46.0",
+    "zod": "^4.4.0"
+  }
+}
