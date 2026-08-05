@@ -70,6 +70,32 @@ graph, B dwell+SPA) → C screenshots`. See
   popup), stored as a WebM blob in the blob store with a separate `recordings`
   table row. The two approaches are not mutually exclusive.
 
+**Link-graph quality (builds on Slice A `in_main`):**
+Slice A ships a boolean `in_main` flag (link sits in Readability's main content
+vs. site chrome) and the digest filters to it. The follow-ups below turn that
+seed into a durable, improvable signal.
+- **URL canonicalization + junk filtering** (near-term): drop same-page fragment
+  anchors (`#cite_note`/`#section`), utility/redlink URLs (`action=edit`,
+  `redlink=1`), and tracking params (`utm_*`, `fbclid`, `gclid`); normalize host
+  + trailing slash. Improves the digest, cross-page dedup, **and** nav-edge dedup
+  + click-matching (which compare URLs exactly today) — the "bare-origin trailing
+  slash" quirk shares this root cause. Small and self-contained.
+- **Structural `in_main` fallback**: when Readability finds no article (SPAs,
+  apps, search-result pages), scope links via `<main>`/`<article>`/`[role=main]`/
+  largest-text-block instead of the current "show all" fallback, so app pages get
+  scoped too rather than flooding the digest.
+- **Region classification**: promote the `in_main` boolean to
+  `region ∈ {main, reference, chrome}` (references = citations/footnotes, which a
+  historian wants but separately from prose). The digest chooses which to show.
+- **Anchor context snippet**: store ~140 chars of surrounding text per link, for
+  recall ("the paper linked from the paragraph about HNSW") and legible M5 graph
+  nodes/edges.
+- **Backend re-classification from stored HTML** (highest-leverage): a backend
+  pass that re-derives `in_main`/`region`/canonical URL from the
+  content-addressed raw DOM. Decouples heuristic quality from capture time — link
+  classification and the M4 ranking signals become improvable across all
+  historical captures without re-browsing.
+
 **Carried engineering items (now load-bearing at Tier-2 volume):**
 - ✅ **EventQueue scaling** (Slice 0): moved from the whole-array rewrite to
   per-event `storage.local` keys (`bb:queue:index` + `bb:q:<seq>`), so a queued
@@ -108,7 +134,12 @@ can proceed before M3b.
   (e.g. semantic-search availability).
 - **Session digests**: on session end, generate a markdown digest (what was
   read, key findings, notable un-followed outbound links, open questions).
-  Must tolerate open-ended sessions (see M3b dangling-session item).
+  Must tolerate open-ended sessions (see M3b dangling-session item). The
+  "notable un-followed" set comes from a shared `score_outbound_links()` —
+  `in_main`/region (M3b) plus cross-page frequency demotion (site chrome that
+  leaks into the main region), off-site boost, novelty vs. session/history, and
+  anchor-text quality — replacing today's `in_main = 1` + `LIMIT 50` filter.
+  Surface the truncation when a page exceeds the limit (no silent caps).
 - **CLI**: `buddy ask "..."`, `buddy digest <session>`.
 
 **Recommendation:** M4 next — real captured sessions are already in the DB, so
@@ -169,9 +200,13 @@ ingest channel.
   already-stored `page_visit` ID) to a new `/api/pages/{id}/links/analyze`
   endpoint; the backend fetches the stored link catalogue (M3b) and returns
   ranked/categorised outbound links (by domain, novelty relative to session
-  history, or recall relevance via the M4 agent). Results render as a
+  history, or recall relevance via the M4 agent) — the same
+  `score_outbound_links()` the M4 digest uses (see M4). Results render as a
   clickable, filterable list in the sidebar — double-clicking a link can open
   it in a new tab and optionally archive it immediately.
+- **Dead-link / archive detection** — periodically check notable un-followed
+  links for 404s and offer Wayback archiving; complements on-demand archive
+  below and keeps the link catalogue useful as sources rot.
 - **Archive / capture on demand** — POST to `/api/pages/capture` with the
   current URL; the backend fetches + stores the page even without an active
   session. Returns the `page_visit` ID so the sidebar can link to the M5
