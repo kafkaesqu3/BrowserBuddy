@@ -136,6 +136,13 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE outbound_links ADD COLUMN in_main INTEGER NOT NULL DEFAULT 1;
     """,
+    # v5: per-page dwell time (Slice B). Accumulated additively as the
+    # extension flushes focus-gated active-time increments at page boundaries
+    # (see background.ts rebaseDwell/flushDwell) — never set outright, so a
+    # crashed tab loses only its most recent unflushed increment.
+    """
+    ALTER TABLE page_visits ADD COLUMN dwell_ms INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 

@@ -122,3 +122,20 @@ def test_v4_migration_adds_in_main_column_and_keeps_data(tmp_path, monkeypatch):
     # Pre-existing row backfills to in_main = 1 (default: visible).
     assert conn.execute("SELECT in_main FROM outbound_links").fetchone()[0] == 1
     conn.close()
+
+
+def test_v5_migration_adds_dwell_column_and_keeps_data(tmp_path, monkeypatch):
+    path = tmp_path / "t.db"
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:4])
+    conn = db.connect(path)  # v1-v4 only
+    conn.execute("INSERT INTO sessions (client_id, name, started_at) VALUES ('c', 's', 1)")
+    conn.execute(
+        "INSERT INTO page_visits (session_id, url, visited_at) VALUES (1, 'https://a.com', 10)"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.undo()
+    conn = db.connect(path)  # applies v5 (and any later migrations) on top of v1-v4 data
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 5
+    assert conn.execute("SELECT dwell_ms FROM page_visits").fetchone()[0] == 0  # backfills to 0
+    conn.close()
