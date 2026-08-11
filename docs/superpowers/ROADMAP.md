@@ -35,8 +35,8 @@ Completes the "research historian" capture surface. Everything here was
 deliberately deferred from M3a (plan `2026-07-17-session-capture-core.md`
 header + "Follow-ups for M3b").
 
-**Being built in slices** (too large for one spec→plan cycle): `0 → (A link
-graph, B dwell+SPA) → C screenshots`. See
+**Being built in slices** (too large for one spec→plan cycle): `0 → A → B →
+C screenshots` (0, A, B merged; C remaining). See
 `specs/2026-07-24-m3b-slice0-foundation-design.md`.
 
 - ✅ **Slice 0 — Foundation & smoke debt** (merged): popup ⚙ Settings link
@@ -46,14 +46,37 @@ graph, B dwell+SPA) → C screenshots`. See
   `plans/2026-07-24-m3b-slice0-foundation.md`. Interactive smoke still owed.
   The REST blob endpoint + gzip-to-thread moved to Slice C (built with their
   only consumer, screenshots).
+- ✅ **Slice A — Link graph & navigation provenance** (merged): outbound-link
+  catalogue, click tracking, `webNavigation`-derived nav edges + search
+  provenance, `buddy links` CLI, `in_main` content-vs-chrome flagging. Plan
+  `plans/2026-07-30-m3b-slice-a-link-graph.md`, smoke
+  `smoke/2026-07-30-m3b-slice-a-smoke.md` (all 11 cases pass).
+- ✅ **Slice B — SPA recapture & minimal dwell** (merged): change-driven
+  recapture (Navigation API `navigatesuccess` + a decaying poll, resubmit
+  only past a text-length-delta threshold) and a crude, focus-gated
+  per-page `dwell_ms` reusing the existing Tier-1 tab-active-time tracker —
+  **deliberately trimmed** from the roadmap's original scroll/visibility/
+  idle-API sketch below, since nothing currently planned needs that
+  precision (decided during brainstorming; see the spec's scope note).
+  Plan `plans/2026-08-11-m3b-slice-b-spa-recapture.md`, spec
+  `specs/2026-08-11-m3b-slice-b-spa-recapture-design.md`. Dwell is not
+  flushed at `nav_edge` or pause (spec §3 "Deliberately not a boundary") —
+  pause in particular leaks focused-while-paused time into the next
+  flush, since the underlying clock is ambient and doesn't freeze. Backend
+  105 tests / extension 80 tests green at merge. Interactive smoke still
+  owed (SPA recapture + dwell accuracy, per the plan's Task 11 handoff).
 
 **New capture (Tier-2 completion):**
-- Clicked links and per-page catalogued outbound links.
-- Navigation edges (how page B was reached from page A) + search-engine
-  provenance derived from `webNavigation`/referrer, **not** DOM scraping.
-- Per-page dwell time (scroll/visibility/focus signals in the content script).
-- SPA change-driven recapture: Navigation API `navigatesuccess` + decaying
-  re-extract, resubmit only when the DOM changed (content.ts one-shot today).
+- ✅ Clicked links and per-page catalogued outbound links (Slice A).
+- ✅ Navigation edges (how page B was reached from page A) + search-engine
+  provenance derived from `webNavigation`/referrer, **not** DOM scraping
+  (Slice A).
+- ✅ SPA change-driven recapture: Navigation API `navigatesuccess` + decaying
+  re-extract, resubmit only when the extracted text changed enough (Slice B).
+- ✅ Per-page dwell time (Slice B) — but crude/focus-gated only, not the
+  scroll/visibility/idle-API version originally sketched here; see the
+  Slice B bullet above and the "Active-time honesty" item below, which
+  remains open.
 - Screenshots / screen recording (Slice C): dwell-gated `tabs.captureVisibleTab`,
   perceptual-hash deduped, stored in the blob store — needs the **REST blob
   endpoint** (M3a ships HTML inline in the WS event at a 2 MB cap; images need
@@ -102,8 +125,12 @@ seed into a durable, improvable signal.
   2 MB HTML body is no longer rewritten per enqueue/ack.
 - **Backend `gzip.compress` on the event loop**: fine single-user today; move
   to a thread when the REST blob endpoint arrives (Slice C).
-- **Active-time honesty** (Slice B): integrate the `idle` API so
-  focused-but-away time doesn't count as active.
+- **Active-time honesty** (still open — deliberately deferred out of
+  Slice B): integrate the `idle` API so focused-but-away time doesn't
+  count as active, and address the pause-boundary leak (Slice B's dwell
+  keeps ticking through a pause since the underlying Tier-1 clock is
+  ambient). Revisit only if a concrete consumer needs precision finer
+  than Slice B's crude figure.
 - ✅ **Popup pairing path** (Slice 0): added the "⚙ Settings" link
   (`browser.runtime.openOptionsPage()`).
 - ✅ **Dangling backend session** (Slice 0, client side): `stop` now enqueues
