@@ -16,6 +16,7 @@ from browserbuddy.models import (
     LinkClickEvent,
     NavEdgeEvent,
     PageCaptureEvent,
+    PageDwellEvent,
     SessionEndEvent,
     SessionStartEvent,
     TabStateEvent,
@@ -146,5 +147,10 @@ def _apply_event(
         storage.mark_link_clicked(
             active["id"], page_url=event.page_url, href=event.href, text=event.text
         )
+    elif isinstance(event, PageDwellEvent):
+        active = storage.get_active_session(client_id)
+        if active is None:
+            raise NoActiveSessionError("page_dwell with no active session")
+        storage.add_page_dwell(active["id"], url=event.url, dwell_ms=event.dwell_ms)
     else:  # pragma: no cover - unreachable until the union grows
         raise AssertionError(f"unhandled event type: {type(event).__name__}")

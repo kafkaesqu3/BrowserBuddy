@@ -367,3 +367,54 @@ def test_ws_link_click_without_session_gets_error_frame(client, app):
             )
         )
         assert ws.receive_json()["type"] == "error"
+
+
+def test_ws_page_dwell_accumulates_on_page_visit(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 100}))
+        assert ws.receive_json() == {"type": "ack", "seq": 1}
+        ws.send_json(
+            _envelope(
+                2,
+                {"type": "page_capture", "url": "https://a.com", "visited_at": 150, "text": "b"},
+            )
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 2}
+        ws.send_json(
+            _envelope(
+                3,
+                {
+                    "type": "page_dwell",
+                    "url": "https://a.com",
+                    "dwell_ms": 4000,
+                    "occurred_at": 160,
+                },
+            )
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+        ws.send_json(
+            _envelope(
+                4,
+                {
+                    "type": "page_dwell",
+                    "url": "https://a.com",
+                    "dwell_ms": 1500,
+                    "occurred_at": 170,
+                },
+            )
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 4}
+    row = app.state.storage._conn.execute("SELECT dwell_ms FROM page_visits").fetchone()
+    assert row["dwell_ms"] == 5500  # additive across two flushes
+
+
+def test_ws_page_dwell_without_session_gets_error_frame(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(
+                1, {"type": "page_dwell", "url": "https://a.com", "dwell_ms": 1, "occurred_at": 1}
+            )
+        )
+        assert ws.receive_json()["type"] == "error"
