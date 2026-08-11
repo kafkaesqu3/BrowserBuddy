@@ -89,6 +89,13 @@ class NavEdgeEvent(ProtocolModel):
     occurred_at: int = Field(ge=0)
 
 
+class PageDwellEvent(ProtocolModel):
+    type: Literal["page_dwell"]
+    url: str = Field(min_length=1)
+    dwell_ms: int = Field(ge=0)
+    occurred_at: int = Field(ge=0)
+
+
 class AuthMessage(ProtocolModel):
     type: Literal["auth"]
     secret: str = Field(min_length=1)
@@ -113,4 +120,5 @@ class EventEnvelope(ProtocolModel):
         | PageCaptureEvent
         | LinkClickEvent
         | NavEdgeEvent
+        | PageDwellEvent
     ) = Field(discriminator="type")

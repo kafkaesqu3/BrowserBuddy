@@ -164,3 +164,36 @@ def test_nav_edge_and_link_click_validate():
         }
     )
     assert env3.event.type == "link_click" and env3.event.text == ""
+
+
+def test_page_dwell_validates_and_defaults():
+    env = EventEnvelope.model_validate(
+        {
+            "v": 1,
+            "seq": 1,
+            "event": {
+                "type": "page_dwell",
+                "url": "https://a.com",
+                "dwell_ms": 4200,
+                "occurred_at": 9,
+            },
+        }
+    )
+    assert env.event.type == "page_dwell"
+    assert env.event.dwell_ms == 4200
+
+
+def test_page_dwell_rejects_negative_dwell():
+    with pytest.raises(ValidationError):
+        EventEnvelope.model_validate(
+            {
+                "v": 1,
+                "seq": 1,
+                "event": {
+                    "type": "page_dwell",
+                    "url": "https://a.com",
+                    "dwell_ms": -1,
+                    "occurred_at": 1,
+                },
+            }
+        )
