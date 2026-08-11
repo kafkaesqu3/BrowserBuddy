@@ -209,3 +209,33 @@ def test_links_no_sessions(tmp_path):
     result = runner.invoke(app, ["links"], env=_env(tmp_path))
     assert result.exit_code == 0
     assert "No sessions" in result.output
+
+
+def test_search_shows_dwell_when_present(tmp_path):
+    from browserbuddy import db
+    from browserbuddy.storage import Storage
+
+    conn = db.connect(tmp_path / "buddy.db")
+    s = Storage(conn)
+    sid = s.start_session("ext-1", "vector research", started_at=1720000000000)
+    s.add_page_visit(
+        sid,
+        url="https://arxiv.org/abs/8",
+        title="HNSW explained",
+        visited_at=1720000001000,
+        text="hierarchical navigable small worlds",
+        html_key=None,
+        container=None,
+    )
+    s.add_page_dwell(sid, url="https://arxiv.org/abs/8", dwell_ms=42_000)
+    conn.close()
+    result = runner.invoke(app, ["search", "navigable"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "dwell=42s" in result.output
+
+
+def test_search_omits_dwell_suffix_when_zero(tmp_path):
+    _seed_session(tmp_path)  # existing helper: seeds a page with no dwell recorded
+    result = runner.invoke(app, ["search", "navigable"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "dwell=" not in result.output

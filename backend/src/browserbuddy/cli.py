@@ -115,9 +115,10 @@ def search(
     if pages:
         typer.echo("-- session pages --")
         for row in pages:
+            dwell = f"  dwell={row['dwell_ms'] // 1000}s" if row["dwell_ms"] else ""
             typer.echo(
                 f"{_fmt_time(row['visited_at'])}  {row['title'] or '(untitled)'}"
-                f"  [{row['session_name']}]"
+                f"  [{row['session_name']}]{dwell}"
             )
             typer.echo(f"                  {row['url']}")
 
