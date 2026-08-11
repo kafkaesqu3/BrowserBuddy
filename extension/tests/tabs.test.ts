@@ -128,6 +128,7 @@ test("activeMs reads current banked time without mutating state", async () => {
   await tracker.recordActivation(1, 1);
   c.advance(4000);
   expect(await tracker.activeMs(1)).toBe(4000); // includes the live open interval
+  expect(await tracker.activeMs(1)).toBe(4000); // idempotent while still live/active — no activeSince reset
   c.advance(1000);
   await tracker.recordActivation(2, 1); // switch away: tab 1 banks 5000 total
   expect(await tracker.activeMs(1)).toBe(5000);
