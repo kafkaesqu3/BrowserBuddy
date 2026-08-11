@@ -16,9 +16,7 @@ def test_add_page_dwell_accumulates_on_latest_visit(storage):
     sid, pid = _page(storage)
     assert storage.add_page_dwell(sid, url="https://a.com", dwell_ms=3000) is True
     assert storage.add_page_dwell(sid, url="https://a.com", dwell_ms=1500) is True
-    row = storage._conn.execute(
-        "SELECT dwell_ms FROM page_visits WHERE id = ?", (pid,)
-    ).fetchone()
+    row = storage._conn.execute("SELECT dwell_ms FROM page_visits WHERE id = ?", (pid,)).fetchone()
     assert row["dwell_ms"] == 4500
 
 
