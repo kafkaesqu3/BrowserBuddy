@@ -72,14 +72,29 @@ new `visited_at`, identical in shape to what a page reload already produces.
   - When a `page_capture` is built for a tab, snapshot that tab's current
     `active_ms` (already tracked by `tabs.ts`, Tier-1: focus-based, handles
     reconnect/refresh/gap-filling).
-  - At the next boundary for that tab — the next `page_capture`, a
-    `nav_edge`, tab close, or session stop/pause — compute
-    `delta = current_active_ms - snapshot`, clamp to `≥ 0` (same clamp
-    `tabs.ts` already applies for wall-clock regressions), and if `delta > 0`
-    send `page_dwell { url: <the page being left>, dwell_ms: delta }`.
+  - At the next boundary for that tab — the next `page_capture`, tab close,
+    or session stop — compute `delta = current_active_ms - snapshot`, clamp
+    to `≥ 0` (same clamp `tabs.ts` already applies for wall-clock
+    regressions), and if `delta > 0` send
+    `page_dwell { url: <the page being left>, dwell_ms: delta }`.
   - This requires no new content-script listeners, no idle API, and no
     scroll signal — it is exactly the existing Tier-1 clock, sliced at page
     boundaries.
+  - **Deliberately not a boundary: `nav_edge` and pause.** A `nav_edge`
+    almost always precedes a `page_capture` for the new page (which already
+    rebases), so treating it as a separate boundary would only matter for an
+    intermediate page that's never captured (a PDF, `about:`, an empty
+    extraction) — that page's focused time is folded into whichever URL was
+    last captured instead. Pause is not a boundary either, and this one has
+    real leakage: the underlying Tier-1 `active_ms` clock is ambient and
+    session-independent, so it keeps ticking through a pause; nothing
+    freezes or carries the baseline forward, so time spent focused while
+    "paused" is folded into the next flush on resume. A correct pause
+    boundary would need the tracker itself frozen (or the baseline
+    explicitly carried across the pause window), not just an extra rebase
+    call — out of scope for this crude, focus-gated figure. Both gaps are
+    accepted for the same reason: nothing currently planned needs dwell
+    precision this fine (see the scope note at the top of this document).
 - **`capture.ts` / `types.ts`** — add `PageDwell` to `EventPayload`; a small
   pure conversion helper (`pageDwellEvent`) mirroring `linkClickEvent`.
 
