@@ -1,5 +1,11 @@
 import { gapFillVisits, type HistoryApi } from "./history";
-import { linkClickEvent, pageCaptureEvent, type ClickMessage, type PageMessage } from "./capture";
+import {
+  linkClickEvent,
+  pageCaptureEvent,
+  pageDwellEvent,
+  type ClickMessage,
+  type PageMessage,
+} from "./capture";
 import { navEdgeEvent } from "./navigation";
 import { EventQueue } from "./queue";
 import { loadSettings } from "./settings";
@@ -162,6 +168,7 @@ async function handleSessionCommand(
         await sessionManager.resume();
         break;
       case "stop": {
+        await flushAllDwell();
         await sessionManager.stop(async (event) => {
           await queue.enqueue(event);
           await (await ensureClient()).notifyEnqueued();
@@ -179,6 +186,7 @@ async function handleSessionCommand(
 async function handlePageMessage(
   msg: PageMessage,
   cookieStoreId: string | undefined,
+  tabId: number | undefined,
 ): Promise<void> {
   const container = await containerName(cookieStoreId);
   const event = pageCaptureEvent(msg, container);
@@ -190,6 +198,9 @@ async function handlePageMessage(
   if (state?.status !== "recording") return; // stale content script or paused
   await queue.enqueue(event);
   await (await ensureClient()).notifyEnqueued();
+  if (tabId !== undefined) {
+    await sendDwell(await rebaseDwell(tabId, event.url));
+  }
 }
 
 const NAV_URLS_KEY = "bb:nav-urls"; // per-tab last committed URL, for edge from_url
@@ -241,6 +252,83 @@ function forgetTab(tabId: number): Promise<void> {
       await session.set({ [NAV_URLS_KEY]: urls });
     }
   });
+}
+
+const DWELL_KEY = "bb:dwell"; // per-tab { url, baseline } snapshot for dwell accounting
+
+// Same non-transactional-storage hazard as the nav-url map above.
+let dwellMutex: Promise<unknown> = Promise.resolve();
+function dwellSerialize<T>(fn: () => Promise<T>): Promise<T> {
+  const next = dwellMutex.then(fn, fn);
+  dwellMutex = next.catch(() => undefined);
+  return next;
+}
+
+interface DwellEntry {
+  url: string;
+  baseline: number;
+}
+
+async function readDwellMap(): Promise<Record<number, DwellEntry>> {
+  return ((await session.get(DWELL_KEY))[DWELL_KEY] as Record<number, DwellEntry>) ?? {};
+}
+
+/** Flush the previous page's dwell (if any) for this tab and start tracking
+ * the new one from the tab's current active-time baseline (the Tier-1
+ * focus-based tracker in tabs.ts). Returns the flushed increment, or null
+ * when there was nothing to flush (first page in a fresh tab) or the
+ * elapsed time was zero (tab was never focused since the last boundary). */
+function rebaseDwell(
+  tabId: number,
+  newUrl: string,
+): Promise<{ url: string; dwellMs: number } | null> {
+  return dwellSerialize(async () => {
+    const map = await readDwellMap();
+    const prev = map[tabId];
+    const now = await tracker.activeMs(tabId);
+    map[tabId] = { url: newUrl, baseline: now };
+    await session.set({ [DWELL_KEY]: map });
+    if (!prev) return null;
+    const dwellMs = Math.max(0, now - prev.baseline);
+    return dwellMs > 0 ? { url: prev.url, dwellMs } : null;
+  });
+}
+
+/** Flush a tab's current dwell without starting a new tracking entry — used
+ * on tab close, where there is no "next page" to rebase onto. */
+function flushDwell(tabId: number): Promise<{ url: string; dwellMs: number } | null> {
+  return dwellSerialize(async () => {
+    const map = await readDwellMap();
+    const prev = map[tabId];
+    if (!prev) return null;
+    delete map[tabId];
+    await session.set({ [DWELL_KEY]: map });
+    const now = await tracker.activeMs(tabId);
+    const dwellMs = Math.max(0, now - prev.baseline);
+    return dwellMs > 0 ? { url: prev.url, dwellMs } : null;
+  });
+}
+
+/** Flush every tracked tab's dwell — called on session stop so the final
+ * page of each open tab isn't lost (nothing else triggers a rebase for it
+ * once the session ends). */
+async function flushAllDwell(): Promise<void> {
+  const map = await dwellSerialize(async () => {
+    const m = await readDwellMap();
+    await session.set({ [DWELL_KEY]: {} });
+    return m;
+  });
+  for (const [tabIdStr, entry] of Object.entries(map)) {
+    const now = await tracker.activeMs(Number(tabIdStr));
+    const dwellMs = Math.max(0, now - entry.baseline);
+    if (dwellMs > 0) await sendDwell({ url: entry.url, dwellMs });
+  }
+}
+
+async function sendDwell(flush: { url: string; dwellMs: number } | null): Promise<void> {
+  if (!flush) return;
+  await queue.enqueue(pageDwellEvent(flush.url, flush.dwellMs));
+  await (await ensureClient()).notifyEnqueued();
 }
 
 async function handleCommitted(details: {
@@ -297,6 +385,7 @@ browser.tabs.onCreated.addListener(() => scheduleSnapshot());
 browser.tabs.onRemoved.addListener((tabId) => {
   scheduleSnapshot();
   logged(forgetTab(tabId));
+  logged(flushDwell(tabId).then(sendDwell));
 });
 browser.webNavigation.onCommitted.addListener((details) => {
   logged(handleCommitted(details));
@@ -357,7 +446,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   const msg = message as { type?: string };
   if (msg?.type === "bb:page") {
-    logged(handlePageMessage(msg as PageMessage, sender.tab?.cookieStoreId));
+    logged(handlePageMessage(msg as PageMessage, sender.tab?.cookieStoreId, sender.tab?.id));
     return false; // no reply — content script fire-and-forget
   }
   if (msg?.type === "bb:click") {
