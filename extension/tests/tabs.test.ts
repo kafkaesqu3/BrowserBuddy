@@ -121,3 +121,20 @@ test("wall-clock regression during open interval cannot produce negative active_
   const records = await tracker.snapshot([tab(1, "https://a.com")], noContainer);
   expect(records[0]!.active_ms).toBe(0); // snapshotImpl clamp, not bank()
 });
+
+test("activeMs reads current banked time without mutating state", async () => {
+  const c = clock();
+  const tracker = new TabTracker(fakeStorageArea(), c.now);
+  await tracker.recordActivation(1, 1);
+  c.advance(4000);
+  expect(await tracker.activeMs(1)).toBe(4000); // includes the live open interval
+  c.advance(1000);
+  await tracker.recordActivation(2, 1); // switch away: tab 1 banks 5000 total
+  expect(await tracker.activeMs(1)).toBe(5000);
+  expect(await tracker.activeMs(2)).toBe(0); // just activated
+});
+
+test("activeMs returns 0 for an unknown tab", async () => {
+  const tracker = new TabTracker(fakeStorageArea(), () => 1000);
+  expect(await tracker.activeMs(999)).toBe(0);
+});

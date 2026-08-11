@@ -143,4 +143,24 @@ export class TabTracker {
     await this.store(state);
     return records;
   }
+
+  /** Current banked active time for a tab (includes the live open interval
+   * if it's the currently active tab), without mutating stored state. Used
+   * by dwell accounting to snapshot/diff a tab's clock at page boundaries
+   * (see background.ts rebaseDwell/flushDwell). Returns 0 for a tab this
+   * tracker has never seen. */
+  activeMs(tabId: number): Promise<number> {
+    return this.serialize(() => this.activeMsImpl(tabId));
+  }
+
+  private async activeMsImpl(tabId: number): Promise<number> {
+    const state = await this.load();
+    const entry = state.perTab[String(tabId)];
+    if (!entry) return 0;
+    let ms = entry.active_ms;
+    if (state.activeTabId === tabId && state.activeSince !== null) {
+      ms += Math.max(0, this.now() - state.activeSince);
+    }
+    return ms;
+  }
 }
