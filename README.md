@@ -45,3 +45,7 @@ Review from the terminal: `buddy sessions`, `buddy search "<anything you read>"`
 Inspect the link graph of a session: `buddy links "<session name>"` — shows how
 you moved between pages (with the search query that led you there) and the
 notable links you saw but didn't follow.
+
+Pages you dwell on show up in `buddy search`'s results too (`dwell=42s`) —
+a crude, focus-gated figure from the same tab-active-time clock Tier-1
+already tracks, not a precise reading-time measurement.
