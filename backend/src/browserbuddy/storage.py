@@ -209,7 +209,7 @@ class Storage:
         fts_query = " OR ".join('"' + t.replace('"', '""') + '"' for t in tokens)
         return self._conn.execute(
             """
-            SELECT p.url, p.title, p.visited_at, s.name AS session_name
+            SELECT p.url, p.title, p.visited_at, p.dwell_ms, s.name AS session_name
             FROM page_fts f
             JOIN page_visits p ON p.id = f.rowid
             JOIN sessions s ON s.id = p.session_id
@@ -297,3 +297,26 @@ class Storage:
             " ORDER BY p.visited_at, o.id LIMIT ?",
             (session_id, limit),
         ).fetchall()
+
+    def add_page_dwell(self, session_id: int, *, url: str, dwell_ms: int) -> bool:
+        """Add dwell_ms to the latest page_visit for url in this session.
+
+        Additive, not a set — the extension flushes small increments over
+        time (not one final value), so a crashed tab/browser only loses the
+        most recent unflushed increment. Returns False when the page was
+        never captured (orphan flush, same convention as
+        mark_link_clicked's orphan-click handling — dropped by the caller).
+        """
+        row = self._conn.execute(
+            "SELECT id FROM page_visits WHERE session_id = ? AND url = ?"
+            " ORDER BY visited_at DESC LIMIT 1",
+            (session_id, url),
+        ).fetchone()
+        if row is None:
+            return False
+        with self._conn:
+            self._conn.execute(
+                "UPDATE page_visits SET dwell_ms = dwell_ms + ? WHERE id = ?",
+                (dwell_ms, row["id"]),
+            )
+        return True
