@@ -70,3 +70,14 @@ export function linkClickEvent(
     clicked_at: now(),
   };
 }
+
+/** Build a page_dwell event from a locally-computed dwell increment (there is
+ * no incoming content-script message to convert — background.ts derives the
+ * increment itself from the Tier-1 tab-active-time tracker; see tabs.ts). */
+export function pageDwellEvent(
+  url: string,
+  dwellMs: number,
+  now: () => number = Date.now,
+): EventPayload & { type: "page_dwell" } {
+  return { type: "page_dwell", url, dwell_ms: Math.max(0, dwellMs), occurred_at: now() };
+}

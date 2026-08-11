@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { MAX_HTML_CHARS, MAX_LINKS, linkClickEvent, pageCaptureEvent } from "@src/capture";
+import { MAX_HTML_CHARS, MAX_LINKS, linkClickEvent, pageCaptureEvent, pageDwellEvent } from "@src/capture";
 
 const msg = (over: Record<string, unknown> = {}) => ({
   type: "bb:page",
@@ -74,4 +74,17 @@ test("linkClickEvent converts a bb:click message", () => {
 test("linkClickEvent rejects messages missing page_url or href", () => {
   expect(linkClickEvent({ page_url: "", href: "https://x.com" }, () => 1)).toBeNull();
   expect(linkClickEvent({ page_url: "https://a.com", href: undefined }, () => 1)).toBeNull();
+});
+
+test("pageDwellEvent builds a page_dwell event", () => {
+  expect(pageDwellEvent("https://a.com", 4200, () => 1_000)).toEqual({
+    type: "page_dwell",
+    url: "https://a.com",
+    dwell_ms: 4200,
+    occurred_at: 1_000,
+  });
+});
+
+test("pageDwellEvent clamps a negative dwell to 0", () => {
+  expect(pageDwellEvent("https://a.com", -5, () => 1_000).dwell_ms).toBe(0);
 });

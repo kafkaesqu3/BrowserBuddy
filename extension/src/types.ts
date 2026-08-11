@@ -61,6 +61,12 @@ export type EventPayload =
       qualifiers: string;
       query: string | null;
       occurred_at: number;
+    }
+  | {
+      type: "page_dwell";
+      url: string;
+      dwell_ms: number;
+      occurred_at: number;
     };
 
 export interface EventEnvelope {
