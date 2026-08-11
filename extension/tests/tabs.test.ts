@@ -131,6 +131,7 @@ test("activeMs reads current banked time without mutating state", async () => {
   c.advance(1000);
   await tracker.recordActivation(2, 1); // switch away: tab 1 banks 5000 total
   expect(await tracker.activeMs(1)).toBe(5000);
+  expect(await tracker.activeMs(1)).toBe(5000); // idempotent: no mutation side effect
   expect(await tracker.activeMs(2)).toBe(0); // just activated
 });
 
