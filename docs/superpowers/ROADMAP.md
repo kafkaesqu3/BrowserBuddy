@@ -131,6 +131,16 @@ seed into a durable, improvable signal.
   keeps ticking through a pause since the underlying Tier-1 clock is
   ambient). Revisit only if a concrete consumer needs precision finer
   than Slice B's crude figure.
+- **Periodic dwell flush** (found during post-implementation code review of
+  Slice B): dwell currently flushes exactly once per page visit (at the
+  next capture/tab-close/session-stop boundary), so a worker/process death
+  mid-flush can lose that whole page's dwell, not just a bounded recent
+  increment — the spec's original "increments, not a final value" framing
+  overstated the protection this gives. Piggybacking a periodic flush onto
+  the existing `bb-sync` 1-minute alarm (rebase in place, not a full clear)
+  would bound the loss window and make that framing true. Deferred rather
+  than added ad hoc: it's a real behavior change (new write path on every
+  alarm tick) that deserves its own task + tests, not a drive-by addition.
 - ✅ **Popup pairing path** (Slice 0): added the "⚙ Settings" link
   (`browser.runtime.openOptionsPage()`).
 - ✅ **Dangling backend session** (Slice 0, client side): `stop` now enqueues

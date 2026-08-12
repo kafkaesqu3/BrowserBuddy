@@ -162,6 +162,11 @@ async function handleSessionCommand(
         break;
       }
       case "pause":
+        // Deliberately does not touch the dwell map: dwell is not gated on
+        // pause (spec §3, "deliberately not a boundary") — the underlying
+        // Tier-1 clock (tabs.ts) is ambient and keeps ticking regardless.
+        // Don't "fix" this by freezing/flushing here without also updating
+        // the spec — see TC9 in the Slice B smoke plan.
         await sessionManager.pause();
         break;
       case "resume":
@@ -311,7 +316,14 @@ function flushDwell(tabId: number): Promise<{ url: string; dwellMs: number } | n
 
 /** Flush every tracked tab's dwell — called on session stop so the final
  * page of each open tab isn't lost (nothing else triggers a rebase for it
- * once the session ends). */
+ * once the session ends).
+ *
+ * Precondition: only ever called while a session is still active (from the
+ * "stop" case, before `sessionManager.stop()` clears it) — the resulting
+ * `page_dwell` events must reach the backend before `session_end` does, or
+ * they'd be rejected as "no active session." There's no guard against a
+ * future no-session callsite; if one is ever added, it must preserve that
+ * ordering rather than gate on session state here. */
 async function flushAllDwell(): Promise<void> {
   const map = await dwellSerialize(async () => {
     const m = await readDwellMap();
@@ -385,6 +397,13 @@ browser.tabs.onCreated.addListener(() => scheduleSnapshot());
 browser.tabs.onRemoved.addListener((tabId) => {
   scheduleSnapshot();
   logged(forgetTab(tabId));
+  // No recording-status guard here, deliberately: flushDwell/sendDwell are
+  // a no-op if there's nothing tracked for this tab (map entries only ever
+  // get created while recording, in handlePageMessage), and if a session
+  // has since ended, the backend's existing no-active-session error frame
+  // (same path every other event type uses) is the correct outcome, not a
+  // bug to guard against here. A pause in progress is not excluded either
+  // — see the "pause" case in handleSessionCommand for why.
   logged(flushDwell(tabId).then(sendDwell));
 });
 browser.webNavigation.onCommitted.addListener((details) => {

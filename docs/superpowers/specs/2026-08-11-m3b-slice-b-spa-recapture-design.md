@@ -31,8 +31,13 @@ ALTER TABLE page_visits ADD COLUMN dwell_ms INTEGER NOT NULL DEFAULT 0;
 ```
 
 `dwell_ms` accumulates via additive updates (see §4) rather than being set
-once, so a crashed tab or an ungracefully-closed browser only loses the most
-recent unflushed increment, not the page's entire dwell figure.
+once. **Correction (found during code review, post-implementation):** this
+does not mean multiple increments land safely per page visit — there is no
+periodic/heartbeat flush, so in practice each page gets exactly *one* flush,
+at the next capture/tab-close/session-stop boundary. "Additive" only means
+a *second* page reusing the same URL later in the session won't clobber an
+earlier flush's value; it does not bound the loss from a single missed
+flush. See the Error handling section below for the corrected claim.
 
 ## 2. Protocol (additive; stays v1)
 
@@ -133,9 +138,20 @@ new `visited_at`, identical in shape to what a page reload already produces.
   connection survives.
 - Negative/zero deltas from clock anomalies clamp to 0 before sending —
   mirrors the existing clamp in `tabs.ts`.
-- A tab closed or the browser killed mid-page loses only the most recent
-  unflushed dwell increment (bounded by the boundary-triggered flush
-  cadence above), not the page's entire dwell figure.
+- **A tab closed or the browser killed mid-flush can lose that page's
+  entire dwell figure, not just a bounded "recent increment"** — dwell
+  flushes exactly once per page visit (at the next capture/tab-close/
+  session-stop boundary), so there is no periodic flush to fall back on if
+  the one flush is lost. The actual risk window is narrow — every event
+  listener in `background.ts` fires an async chain from a synchronous
+  callback it doesn't return to the browser (`logged(promise)`, never
+  `return promise`), so this loss window exists for every event type, not
+  just dwell, and only manifests if the whole extension process (not just
+  the tab) is torn down mid-write (e.g. closing the last open browser
+  window on Chrome MV3). Documented, not fixed, in this slice — see the
+  roadmap's carried-engineering-items list for the considered follow-up
+  (piggyback a periodic dwell flush onto the existing `bb-sync` alarm,
+  which would make the "increments" framing above actually true).
 
 ## Out of scope for Slice B
 
