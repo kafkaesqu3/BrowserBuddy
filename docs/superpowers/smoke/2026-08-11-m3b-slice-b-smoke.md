@@ -295,22 +295,28 @@ criterion.
 
 ## Results
 
-_Not yet run — fill in after executing this plan._
+Run: 2026-08-12, via the `browserbuddy-firefox` MCP tools in a separate
+testing agent/session (not this one) against this plan as written,
+including the TC2/TC11 corrections above.
 
 | # | Case | Result | Notes |
 |---|------|--------|-------|
-| TC1 | Baseline capture (regression) | | |
-| TC2 | Noise below threshold not recaptured | | |
-| TC3 | Decaying poll catches silent change | | |
-| TC4 | `navigatesuccess` catches pushState change immediately | | |
-| TC5 | Poll resets to fast interval after a catch | | |
-| TC6 | Dwell excludes time away from tab | | |
-| TC7 | Dwell flushes on tab close | | |
-| TC8 | Dwell flushes on session stop | | |
-| TC9 | Known limitation: dwell accrues through pause | | |
-| TC10 | Regression: link graph (Slice A) | | |
-| TC11 | Regression: pause captures nothing | | |
-| TC12 | CLI dwell format | | |
+| TC1 | Baseline capture (regression) | ✅ PASS | |
+| TC2 | Noise below threshold not recaptured | ✅ PASS | re-run with the single-click fix |
+| TC3 | Decaying poll catches silent change | ✅ PASS | |
+| TC4 | `navigatesuccess` catches pushState change immediately | ✅ PASS | |
+| TC5 | Poll resets to fast interval after a catch | ✅ PASS | |
+| TC6 | Dwell excludes time away from tab | ✅ PASS | |
+| TC7 | Dwell flushes on tab close | ✅ PASS | |
+| TC8 | Dwell flushes on session stop | ✅ PASS | |
+| TC9 | Known limitation: dwell accrues through pause | ✅ PASS | confirmed as documented, not a regression |
+| TC10 | Regression: link graph (Slice A) | ✅ PASS | |
+| TC11 | Regression: pause captures nothing | ✅ PASS | re-run with the Tier-1/Tier-2 clarification |
+| TC12 | CLI dwell format | ✅ PASS | |
+
+No further per-case detail was recorded beyond pass/fail from that run —
+if finer notes (exact observed dwell values, timing margins, etc.) turn up
+later, append them here rather than re-running the whole plan.
 
 ## Teardown
 
