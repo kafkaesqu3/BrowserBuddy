@@ -124,14 +124,23 @@ criterion.
 - **Feature:** `textChangedEnough` — a small delta must not trigger a
   resubmit.
 - **Steps:** Start session `spa-noise`. Navigate to the fixture. Wait ~2s
-  for the initial capture. Click **"Small change"** three times in a row
-  (each adds ~150 chars). Wait ~10s (through at least two poll ticks).
-  Stop.
+  for the initial capture. Click **"Small change" exactly once** (adds
+  ~150 chars, under the 200-char floor). Wait ~10s (through at least two
+  poll ticks) **without clicking it again**. Stop.
+- **Do not click the button more than once before checking.** The poll
+  compares whatever the DOM looks like *at each tick* against the
+  last-*sent* length — it has no memory of individual clicks between
+  ticks. Three rapid clicks (450 cumulative chars) landing before the next
+  tick fires is a *materially changed page* from the algorithm's point of
+  view and **correctly** triggers a recapture; that's a test-design error,
+  not a bug, and was caught exactly this way in an earlier run of this
+  plan — see the spec's threshold description before assuming a single
+  extra capture here is a regression.
 - **Verify:** `uv run buddy sessions` → session `spa-noise` has
-  **page_count = 1** for the fixture (only the initial capture — none of
-  the three noise clicks produced a new row). `uv run buddy search
+  **page_count = 1** for the fixture (only the initial capture — the one
+  noise click did not produce a new row). `uv run buddy search
   "NOISE-MARKER-DELTA"` returns **no results** (that text was never sent).
-- **PASS:** no extra captures from sub-threshold changes.
+- **PASS:** no extra capture from one sub-threshold change.
 
 ### TC3 — Decaying poll catches a silent DOM change
 
@@ -253,11 +262,24 @@ criterion.
   paused, visit page B (a different page) and wait long enough that, if
   recapture were still active, a poll tick could have fired. **Resume**,
   visit page C. Stop.
-- **Verify:** `uv run buddy links regress-pause` / `buddy search` — no
-  activity attributable to page B; A and C are present.
-- **PASS:** the persistent watcher still respects the recording-only gate
-  (background drops non-recording messages, per existing pattern) even
-  though it never seems to just be running once per page.
+- **Verify — session-scoped signals only:** `uv run buddy links
+  regress-pause` (no nav edge to/from page B) and `uv run buddy sessions`
+  (page_count for this session excludes B) — no Tier-2 activity
+  attributable to page B; A and C are present.
+- **Expected, not a failure: page B may still appear in plain `buddy
+  search` output.** `browser.history.onVisited` (Tier-1 ambient history
+  sync) is **always on**, completely independent of session/pause state
+  by design (`pushVisit` in `sync.ts` has no recording-status check at
+  all) — it's a separate table (`history_entries`) from session capture
+  (`page_visits`). A bare, session-tag-less, "(untitled)"-titled line for
+  page B in `buddy search`'s plain (non `-- session pages --`) block is
+  Tier-1 doing its job, not a Tier-2 pause-gate leak. This exact
+  confusion happened in an earlier run of this plan — don't re-flag it.
+  If page B instead appears **under `-- session pages --` with a
+  `[regress-pause]` tag**, or shows up in `buddy links regress-pause`,
+  *that* would be the real regression to report.
+- **PASS:** no Tier-2 (session-scoped) activity attributable to page B;
+  a Tier-1 history line for B is fine and expected.
 
 ### TC12 — CLI dwell format
 
