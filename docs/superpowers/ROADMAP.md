@@ -63,8 +63,8 @@ C screenshots` (0, A, B merged; C remaining). See
   flushed at `nav_edge` or pause (spec §3 "Deliberately not a boundary") —
   pause in particular leaks focused-while-paused time into the next
   flush, since the underlying clock is ambient and doesn't freeze. Backend
-  105 tests / extension 80 tests green at merge. Interactive smoke still
-  owed (SPA recapture + dwell accuracy, per the plan's Task 11 handoff).
+  105 tests / extension 80 tests green at merge. Smoke
+  `smoke/2026-08-11-m3b-slice-b-smoke.md` (all 12 cases pass).
 
 **New capture (Tier-2 completion):**
 - ✅ Clicked links and per-page catalogued outbound links (Slice A).
