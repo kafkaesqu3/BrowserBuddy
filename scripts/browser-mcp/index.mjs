@@ -269,5 +269,10 @@ for (const sig of ["SIGINT", "SIGTERM"]) {
   });
 }
 
+// Keep stdin in flowing mode so the event loop stays alive even before the
+// first message arrives. Without this, Node.js can exit prematurely when the
+// MCP client spawns the server and there is a brief delay before the
+// initialize handshake — causing a ConnectionClosed (-32000) error.
+process.stdin.resume();
 const transport = new StdioServerTransport();
 await server.connect(transport);
