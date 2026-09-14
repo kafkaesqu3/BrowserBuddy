@@ -18,6 +18,17 @@ const sessionEl = el<HTMLDivElement>("session");
 const pauseBtn = el<HTMLButtonElement>("pause");
 const resumeBtn = el<HTMLButtonElement>("resume");
 const connectionEl = el<HTMLDivElement>("connection");
+const screenshotsEnabledInput = el<HTMLInputElement>("screenshots-enabled");
+const screenshotIntervalInput = el<HTMLInputElement>("screenshot-interval");
+const captureNowBtn = el<HTMLButtonElement>("capture-now");
+
+function captureOptions(): { screenshotsEnabled: boolean; screenshotIntervalMs: number } {
+  const seconds = Math.max(1, Number(screenshotIntervalInput.value) || 30);
+  return {
+    screenshotsEnabled: screenshotsEnabledInput.checked,
+    screenshotIntervalMs: seconds * 1000,
+  };
+}
 
 function render(reply: SessionReply): void {
   const s = reply.session;
@@ -39,6 +50,7 @@ async function command(action: string, name?: string): Promise<void> {
       type: "bb:session",
       action,
       name,
+      ...captureOptions(),
     })) as SessionReply;
     render(reply);
   } catch {
@@ -70,4 +82,15 @@ el<HTMLAnchorElement>("settings").addEventListener("click", (e) => {
   // primary surface, so first-time pairing must be reachable from here.
   e.preventDefault();
   void browser.runtime.openOptionsPage();
+});
+
+// Toggling/changing screenshot settings while a session may already be
+// recording applies immediately — the "start" fields double as the live
+// controls (a no-op if idle, since update-capture requires an active
+// session; see sessions.ts).
+screenshotsEnabledInput.addEventListener("change", () => void command("update-capture"));
+screenshotIntervalInput.addEventListener("change", () => void command("update-capture"));
+
+captureNowBtn.addEventListener("click", () => {
+  void browser.runtime.sendMessage({ type: "bb:capture-fullpage" });
 });

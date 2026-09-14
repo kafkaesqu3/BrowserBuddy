@@ -13,6 +13,8 @@
       .paused { color: #7f8c8d; }
       #connection { color: #555; margin-top: 0.5rem; font-size: 12px; }
       #settings { display: inline-block; margin-top: 0.5rem; font-size: 12px; color: #2668c9; cursor: pointer; text-decoration: none; }
+      #capture-settings { margin: 0.5rem 0; font-size: 12px; }
+      #capture-settings input[type="number"] { width: 3.5em; display: inline; padding: 0.1rem; }
       .hidden { display: none; }
     </style>
   </head>
@@ -27,6 +29,11 @@
       <button id="pause">Pause</button>
       <button id="resume" class="hidden">Resume</button>
       <button id="stop">Stop</button>
+      <button id="capture-now">📷 Capture now</button>
+    </div>
+    <div id="capture-settings">
+      <label><input id="screenshots-enabled" type="checkbox" /> Capture screenshots</label>
+      every <input id="screenshot-interval" type="number" min="1" value="30" /> sec
     </div>
     <div id="connection">…</div>
     <a id="settings" href="#">⚙ Settings</a>
