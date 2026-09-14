@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { MAX_HTML_CHARS, MAX_LINKS, linkClickEvent, pageCaptureEvent, pageDwellEvent } from "@src/capture";
+import {
+  MAX_HTML_CHARS,
+  MAX_LINKS,
+  linkClickEvent,
+  pageCaptureEvent,
+  pageDwellEvent,
+  pageScreenshotEvent,
+} from "@src/capture";
 
 const msg = (over: Record<string, unknown> = {}) => ({
   type: "bb:page",
@@ -87,4 +94,19 @@ test("pageDwellEvent builds a page_dwell event", () => {
 
 test("pageDwellEvent clamps a negative dwell to 0", () => {
   expect(pageDwellEvent("https://a.com", -5, () => 1_000).dwell_ms).toBe(0);
+});
+
+test("pageScreenshotEvent builds a page_screenshot event", () => {
+  expect(pageScreenshotEvent("https://a.com", "periodic", ["k1"], () => 1_000)).toEqual({
+    type: "page_screenshot",
+    url: "https://a.com",
+    occurred_at: 1_000,
+    kind: "periodic",
+    blob_keys: ["k1"],
+  });
+});
+
+test("pageScreenshotEvent carries multiple ordered tile keys for fullpage capture", () => {
+  const event = pageScreenshotEvent("https://a.com", "on_demand_fullpage", ["k1", "k2"], () => 1_000);
+  expect(event.blob_keys).toEqual(["k1", "k2"]);
 });

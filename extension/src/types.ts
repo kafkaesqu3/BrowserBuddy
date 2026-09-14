@@ -67,6 +67,13 @@ export type EventPayload =
       url: string;
       dwell_ms: number;
       occurred_at: number;
+    }
+  | {
+      type: "page_screenshot";
+      url: string;
+      occurred_at: number;
+      kind: "periodic" | "on_demand_viewport" | "on_demand_fullpage";
+      blob_keys: string[];
     };
 
 export interface EventEnvelope {

@@ -81,3 +81,15 @@ export function pageDwellEvent(
 ): EventPayload & { type: "page_dwell" } {
   return { type: "page_dwell", url, dwell_ms: Math.max(0, dwellMs), occurred_at: now() };
 }
+
+/** Build a page_screenshot event referencing already-uploaded blob key(s) —
+ * one for a viewport capture, N ordered tiles for a full-page on-demand
+ * capture the backend will stitch (see background.ts's captureFullPage). */
+export function pageScreenshotEvent(
+  url: string,
+  kind: "periodic" | "on_demand_viewport" | "on_demand_fullpage",
+  blobKeys: string[],
+  now: () => number = Date.now,
+): EventPayload & { type: "page_screenshot" } {
+  return { type: "page_screenshot", url, occurred_at: now(), kind, blob_keys: blobKeys };
+}
