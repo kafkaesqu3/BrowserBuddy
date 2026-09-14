@@ -418,3 +418,39 @@ def test_ws_page_dwell_without_session_gets_error_frame(client, app):
             )
         )
         assert ws.receive_json()["type"] == "error"
+
+
+def test_upload_blob_returns_content_key(client, app):
+    resp = client.post("/api/blobs", headers={"X-BB-Secret": app.state.secret}, content=b"hello")
+    assert resp.status_code == 200
+    import hashlib
+
+    assert resp.json() == {"key": hashlib.sha256(b"hello").hexdigest()}
+
+
+def test_upload_blob_rejects_bad_secret(client):
+    resp = client.post("/api/blobs", headers={"X-BB-Secret": "wrong"}, content=b"hello")
+    assert resp.status_code == 401
+
+
+def test_upload_blob_rejects_missing_secret(client):
+    resp = client.post("/api/blobs", content=b"hello")
+    assert resp.status_code == 401
+
+
+def test_upload_blob_rejects_oversized_body(client, app):
+    resp = client.post(
+        "/api/blobs", headers={"X-BB-Secret": app.state.secret}, content=b"x" * (10_000_001)
+    )
+    assert resp.status_code == 413
+
+
+def test_upload_blob_is_idempotent_and_uncompressed(client, app, tmp_path):
+    key1 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": app.state.secret}, content=b"same bytes"
+    ).json()["key"]
+    key2 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": app.state.secret}, content=b"same bytes"
+    ).json()["key"]
+    assert key1 == key2
+    assert app.state.blobs.get(key1) == b"same bytes"

@@ -1,7 +1,8 @@
+import asyncio
 import logging
 import sqlite3
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from browserbuddy import db
@@ -39,6 +40,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/health")
     def health() -> dict[str, object]:
         return {"status": "ok", "protocol": PROTOCOL_VERSION}
+
+    MAX_BLOB_BYTES = 10_000_000
+
+    @app.post("/api/blobs")
+    async def upload_blob(request: Request) -> dict[str, str]:
+        """Generic content-addressed blob upload — bytes in, key out, no
+        session/tab/URL context (that travels separately over WS; see
+        PageScreenshotEvent). Auth mirrors the WS handshake's shared secret,
+        carried as a header since this is a stateless one-shot request."""
+        if not verify_secret(app.state.secret, request.headers.get("X-BB-Secret", "")):
+            raise HTTPException(status_code=401, detail="bad secret")
+        body = await request.body()
+        if len(body) > MAX_BLOB_BYTES:
+            raise HTTPException(status_code=413, detail="blob too large")
+        key = await asyncio.to_thread(app.state.blobs.put, body, compress=False)
+        return {"key": key}
 
     @app.websocket("/ws")
     async def ws_ingest(ws: WebSocket) -> None:
