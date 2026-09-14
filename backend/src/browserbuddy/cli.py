@@ -159,6 +159,34 @@ def links(
 
 
 @app.command()
+def screenshots(
+    session: str | None = typer.Argument(  # noqa: B008 — Typer requires Argument() in defaults
+        None, help="Session id or name (default: newest)."
+    ),
+    url: str | None = typer.Option(None, help="Filter to one page URL."),
+) -> None:
+    """List a session's captured screenshots."""
+    conn = db.connect(get_settings().db_path)
+    try:
+        storage = Storage(conn)
+        rows = storage.list_sessions(limit=200)
+        target = _resolve_session(rows, session)
+        if target is None:
+            typer.echo("No matching session." if session else "No sessions recorded yet.")
+            return
+        shots = storage.list_screenshots(target["id"], url=url)
+    finally:
+        conn.close()
+    typer.echo(f"Session: {target['name']} (id {target['id']})")
+    if not shots:
+        typer.echo("  (none)")
+        return
+    for shot in shots:
+        typer.echo(f"  {_fmt_time(shot['captured_at'])}  [{shot['kind']}]  {shot['url']}")
+        typer.echo(f"                  blob={shot['blob_key']}")
+
+
+@app.command()
 def tabs() -> None:
     """Show the current open-tab inventory (as last synced by the extension)."""
     settings = get_settings()

@@ -239,3 +239,77 @@ def test_search_omits_dwell_suffix_when_zero(tmp_path):
     result = runner.invoke(app, ["search", "navigable"], env=_env(tmp_path))
     assert result.exit_code == 0
     assert "dwell=" not in result.output
+
+
+def _seed_screenshot_session(tmp_path):
+    from browserbuddy import db
+    from browserbuddy.storage import Storage
+
+    conn = db.connect(tmp_path / "buddy.db")
+    s = Storage(conn)
+    sid = s.start_session("ext-1", "vector research", started_at=1720000000000)
+    s.add_page_visit(
+        sid,
+        url="https://arxiv.org/abs/8",
+        title="HNSW explained",
+        visited_at=1720000001000,
+        text="",
+        html_key=None,
+        container=None,
+    )
+    s.add_page_visit(
+        sid,
+        url="https://arxiv.org/abs/9",
+        title="Other paper",
+        visited_at=1720000002000,
+        text="",
+        html_key=None,
+        container=None,
+    )
+    s.add_page_screenshot(
+        sid,
+        url="https://arxiv.org/abs/8",
+        occurred_at=1720000001500,
+        kind="periodic",
+        blob_key="deadbeef",
+        phash="0" * 16,
+        dedup_threshold=8,
+    )
+    s.add_page_screenshot(
+        sid,
+        url="https://arxiv.org/abs/9",
+        occurred_at=1720000002500,
+        kind="on_demand_fullpage",
+        blob_key="beefdead",
+        phash="f" * 16,
+        dedup_threshold=8,
+    )
+    conn.close()
+
+
+def test_screenshots_command_lists_all_captures(tmp_path):
+    _seed_screenshot_session(tmp_path)
+    result = runner.invoke(app, ["screenshots", "vector research"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "periodic" in result.output
+    assert "on_demand_fullpage" in result.output
+    assert "deadbeef" in result.output
+    assert "beefdead" in result.output
+
+
+def test_screenshots_command_filters_by_url(tmp_path):
+    _seed_screenshot_session(tmp_path)
+    result = runner.invoke(
+        app,
+        ["screenshots", "vector research", "--url", "https://arxiv.org/abs/8"],
+        env=_env(tmp_path),
+    )
+    assert result.exit_code == 0
+    assert "deadbeef" in result.output
+    assert "beefdead" not in result.output
+
+
+def test_screenshots_command_no_matching_session(tmp_path):
+    result = runner.invoke(app, ["screenshots", "nonexistent"], env=_env(tmp_path))
+    assert result.exit_code == 0
+    assert "No matching session" in result.output
