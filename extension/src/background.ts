@@ -424,6 +424,9 @@ const lastScreenshotAt = new Map<number, number>();
  * moment ago, racing its own "stop" message. */
 async function handleScreenshotTick(tabId: number | undefined): Promise<void> {
   if (tabId === undefined || tabId !== tickingTabId) return;
+  // Competing captureVisibleTab calls would blow Chrome's ~2/sec quota and
+  // fail a tile, which aborts the whole full-page capture. Skip this slot.
+  if (fullPageCaptureInFlight) return;
   const state = await sessionManager.current();
   if (state?.status !== "recording" || !state.screenshotsEnabled) return;
   const now = Date.now();
