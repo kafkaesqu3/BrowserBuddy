@@ -18,10 +18,12 @@ from browserbuddy.models import (
     NavEdgeEvent,
     PageCaptureEvent,
     PageDwellEvent,
+    PageScreenshotEvent,
     SessionEndEvent,
     SessionStartEvent,
     TabStateEvent,
 )
+from browserbuddy.phash import difference_hash, stitch_vertical
 from browserbuddy.storage import NoActiveSessionError, Storage
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage = Storage(db.connect(settings.db_path))
     app.state.secret = get_or_create_secret(settings.data_dir)
     app.state.blobs = BlobStore(settings.data_dir / "blobs")
+    app.state.settings = settings
 
     @app.get("/health")
     def health() -> dict[str, object]:
@@ -103,7 +106,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 last_seq = storage.get_last_seq(auth.client_id)
                 if envelope.seq > last_seq:
                     try:
-                        _apply_event(storage, app.state.blobs, auth.client_id, envelope)
+                        await _apply_event(
+                            storage, app.state.blobs, app.state.settings, auth.client_id, envelope
+                        )
                         storage.set_last_seq(auth.client_id, envelope.seq)
                     except (sqlite3.IntegrityError, NoActiveSessionError) as exc:
                         logger.warning("Rejected event seq=%d: %s", envelope.seq, exc)
@@ -116,8 +121,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
-def _apply_event(
-    storage: Storage, blobs: BlobStore, client_id: str, envelope: EventEnvelope
+async def _apply_event(
+    storage: Storage,
+    blobs: BlobStore,
+    settings: Settings,
+    client_id: str,
+    envelope: EventEnvelope,
 ) -> None:
     event = envelope.event
     if isinstance(event, TabStateEvent):
@@ -132,7 +141,7 @@ def _apply_event(
         active = storage.get_active_session(client_id)
         if active is None:
             raise NoActiveSessionError("page_capture with no active session")
-        html_key = blobs.put(event.html.encode()) if event.html else None
+        html_key = await asyncio.to_thread(blobs.put, event.html.encode()) if event.html else None
         page_visit_id = storage.add_page_visit(
             active["id"],
             url=event.url,
@@ -169,5 +178,25 @@ def _apply_event(
         if active is None:
             raise NoActiveSessionError("page_dwell with no active session")
         storage.add_page_dwell(active["id"], url=event.url, dwell_ms=event.dwell_ms)
+    elif isinstance(event, PageScreenshotEvent):
+        active = storage.get_active_session(client_id)
+        if active is None:
+            raise NoActiveSessionError("page_screenshot with no active session")
+        tiles = [blobs.get(k) for k in event.blob_keys]
+        if len(tiles) == 1:
+            image_bytes, blob_key = tiles[0], event.blob_keys[0]
+        else:
+            image_bytes = await asyncio.to_thread(stitch_vertical, tiles)
+            blob_key = await asyncio.to_thread(blobs.put, image_bytes, compress=False)
+        phash = await asyncio.to_thread(difference_hash, image_bytes)
+        storage.add_page_screenshot(
+            active["id"],
+            url=event.url,
+            occurred_at=event.occurred_at,
+            kind=event.kind,
+            blob_key=blob_key,
+            phash=phash,
+            dedup_threshold=settings.screenshot_dedup_threshold,
+        )
     else:  # pragma: no cover - unreachable until the union grows
         raise AssertionError(f"unhandled event type: {type(event).__name__}")

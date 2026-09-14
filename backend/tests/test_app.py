@@ -454,3 +454,184 @@ def test_upload_blob_is_idempotent_and_uncompressed(client, app, tmp_path):
     ).json()["key"]
     assert key1 == key2
     assert app.state.blobs.get(key1) == b"same bytes"
+
+
+def _jpeg(color=(10, 20, 30), size=(16, 16), quality=95):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
+
+
+def _gradient_jpeg(ascending, width=32, height=32):
+    import io
+
+    from PIL import Image
+
+    img = Image.new("L", (width, height))
+    for x in range(width):
+        value = int(255 * x / (width - 1))
+        for y in range(height):
+            img.putpixel((x, y), value if ascending else 255 - value)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="JPEG", quality=95)
+    return buf.getvalue()
+
+
+def _start_session_and_capture(client, app, url="https://a.com"):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(_envelope(1, {"type": "session_start", "name": "s", "started_at": 100}))
+        ws.receive_json()
+        ws.send_json(
+            _envelope(2, {"type": "page_capture", "url": url, "visited_at": 150, "text": "b"})
+        )
+        ws.receive_json()
+
+
+def test_ws_page_screenshot_viewport_stores_row_and_reuses_key(client, app):
+    _start_session_and_capture(client, app)
+    key = client.post(
+        "/api/blobs", headers={"X-BB-Secret": app.state.secret}, content=_jpeg()
+    ).json()["key"]
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(
+                3,
+                {
+                    "type": "page_screenshot",
+                    "url": "https://a.com",
+                    "occurred_at": 200,
+                    "kind": "periodic",
+                    "blob_keys": [key],
+                },
+            )
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+    active = app.state.storage.get_active_session("ext-test")
+    rows = app.state.storage.list_screenshots(active["id"])
+    assert len(rows) == 1
+    assert rows[0]["kind"] == "periodic"
+    assert rows[0]["blob_key"] == key  # single tile: no re-upload, key reused
+
+
+def test_ws_page_screenshot_fullpage_stitches_tiles_into_a_new_blob(client, app):
+    _start_session_and_capture(client, app)
+    secret = app.state.secret
+    key1 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": secret}, content=_jpeg((10, 10, 10), (20, 10))
+    ).json()["key"]
+    key2 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": secret}, content=_jpeg((20, 20, 20), (20, 15))
+    ).json()["key"]
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(
+                3,
+                {
+                    "type": "page_screenshot",
+                    "url": "https://a.com",
+                    "occurred_at": 200,
+                    "kind": "on_demand_fullpage",
+                    "blob_keys": [key1, key2],
+                },
+            )
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+    active = app.state.storage.get_active_session("ext-test")
+    rows = app.state.storage.list_screenshots(active["id"])
+    assert len(rows) == 1
+    assert rows[0]["blob_key"] not in (key1, key2)  # a new stitched blob was created
+    import io
+
+    from PIL import Image
+
+    stitched = app.state.blobs.get(rows[0]["blob_key"])
+    assert Image.open(io.BytesIO(stitched)).size == (20, 25)
+
+
+def test_ws_page_screenshot_dedupes_visually_identical_capture(client, app):
+    _start_session_and_capture(client, app)
+    secret = app.state.secret
+    # Two solid-color images always difference-hash to the same value
+    # (every adjacent-pixel comparison is equal->False), regardless of the
+    # exact color/quality — different bytes/keys, same perceptual hash.
+    key1 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": secret}, content=_jpeg((10, 20, 30), quality=95)
+    ).json()["key"]
+    key2 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": secret}, content=_jpeg((11, 21, 29), quality=80)
+    ).json()["key"]
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        for seq, key in ((3, key1), (4, key2)):
+            ws.send_json(
+                _envelope(
+                    seq,
+                    {
+                        "type": "page_screenshot",
+                        "url": "https://a.com",
+                        "occurred_at": 200 + seq,
+                        "kind": "periodic",
+                        "blob_keys": [key],
+                    },
+                )
+            )
+            # ack either way; dedup isn't an error
+            assert ws.receive_json() == {"type": "ack", "seq": seq}
+    active = app.state.storage.get_active_session("ext-test")
+    rows = app.state.storage.list_screenshots(active["id"])
+    assert len(rows) == 1  # second capture deduped away
+
+
+def test_ws_page_screenshot_keeps_visually_distinct_captures(client, app):
+    _start_session_and_capture(client, app)
+    secret = app.state.secret
+    key1 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": secret}, content=_gradient_jpeg(True)
+    ).json()["key"]
+    key2 = client.post(
+        "/api/blobs", headers={"X-BB-Secret": secret}, content=_gradient_jpeg(False)
+    ).json()["key"]
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        for seq, key in ((3, key1), (4, key2)):
+            ws.send_json(
+                _envelope(
+                    seq,
+                    {
+                        "type": "page_screenshot",
+                        "url": "https://a.com",
+                        "occurred_at": 200 + seq,
+                        "kind": "periodic",
+                        "blob_keys": [key],
+                    },
+                )
+            )
+            assert ws.receive_json() == {"type": "ack", "seq": seq}
+    active = app.state.storage.get_active_session("ext-test")
+    rows = app.state.storage.list_screenshots(active["id"])
+    assert len(rows) == 2
+
+
+def test_ws_page_screenshot_without_session_gets_error_frame(client, app):
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(
+                1,
+                {
+                    "type": "page_screenshot",
+                    "url": "https://a.com",
+                    "occurred_at": 1,
+                    "kind": "periodic",
+                    "blob_keys": ["deadbeef"],
+                },
+            )
+        )
+        assert ws.receive_json()["type"] == "error"
