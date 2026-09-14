@@ -1,6 +1,13 @@
 import type { EventPayload, StorageArea } from "./types";
 
-export interface SessionState {
+export interface CaptureOptions {
+  screenshotsEnabled: boolean;
+  screenshotIntervalMs: number;
+}
+
+const DEFAULT_CAPTURE: CaptureOptions = { screenshotsEnabled: false, screenshotIntervalMs: 30_000 };
+
+export interface SessionState extends CaptureOptions {
   name: string;
   startedAt: number;
   status: "recording" | "paused";
@@ -33,14 +40,24 @@ export class SessionManager {
     return stored ?? null;
   }
 
-  start(name: string): Promise<{ event: EventPayload }> {
+  start(name: string, capture: CaptureOptions = DEFAULT_CAPTURE): Promise<{ event: EventPayload }> {
     return this.serialize(async () => {
       const startedAt = this.now();
-      const state: SessionState = { name, startedAt, status: "recording" };
+      const state: SessionState = { name, startedAt, status: "recording", ...capture };
       await this.local.set({ [KEY]: state });
       // Starting over an active session is fine: the backend implicitly
       // closes the previous session at the new start time.
       return { event: { type: "session_start", name, started_at: startedAt } };
+    });
+  }
+
+  /** Change the screenshot toggle/interval for the active session, mid-
+   * recording — independently of pause/resume, and a no-op with no active
+   * session. */
+  updateCapture(capture: CaptureOptions): Promise<void> {
+    return this.serialize(async () => {
+      const state = await this.current();
+      if (state) await this.local.set({ [KEY]: { ...state, ...capture } });
     });
   }
 

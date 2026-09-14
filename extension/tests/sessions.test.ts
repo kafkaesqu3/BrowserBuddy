@@ -25,6 +25,8 @@ test("start returns a session_start event and sets recording state", async () =>
     name: "quantum papers",
     startedAt: 1_000_000,
     status: "recording",
+    screenshotsEnabled: false,
+    screenshotIntervalMs: 30_000,
   });
 });
 
@@ -87,4 +89,33 @@ test("start while a session is active replaces it (backend closes the old one)",
   const result = await mgr.start("two");
   expect(result.event.type).toBe("session_start");
   expect((await mgr.current())?.name).toBe("two");
+});
+
+test("start accepts explicit capture options", async () => {
+  const { mgr } = manager();
+  await mgr.start("s", { screenshotsEnabled: true, screenshotIntervalMs: 5000 });
+  expect(await mgr.current()).toEqual({
+    name: "s",
+    startedAt: 1_000_000,
+    status: "recording",
+    screenshotsEnabled: true,
+    screenshotIntervalMs: 5000,
+  });
+});
+
+test("updateCapture changes settings mid-session without touching status", async () => {
+  const { mgr } = manager();
+  await mgr.start("s", { screenshotsEnabled: false, screenshotIntervalMs: 30_000 });
+  await mgr.pause();
+  await mgr.updateCapture({ screenshotsEnabled: true, screenshotIntervalMs: 10_000 });
+  const state = await mgr.current();
+  expect(state?.screenshotsEnabled).toBe(true);
+  expect(state?.screenshotIntervalMs).toBe(10_000);
+  expect(state?.status).toBe("paused"); // untouched
+});
+
+test("updateCapture is a no-op with no active session", async () => {
+  const { mgr } = manager();
+  await mgr.updateCapture({ screenshotsEnabled: true, screenshotIntervalMs: 1000 });
+  expect(await mgr.current()).toBeNull();
 });
