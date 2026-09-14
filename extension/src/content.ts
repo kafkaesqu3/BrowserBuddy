@@ -82,4 +82,51 @@ import { extractLinks, extractPage } from "./extract";
     clearTimeout(timer);
     timer = setTimeout(recheck, 500); // let the new route settle, like initial load
   });
+
+  // --- Screenshots (Slice C) ------------------------------------------
+  // Tick loop: a fixed-cadence heartbeat while this tab is the one
+  // background has designated "active." This script has no idea whether
+  // screenshots are enabled or what interval is configured — background
+  // decides everything (same split as the bb:page/bb:click messages
+  // above). Content scripts stay alive for the life of the document,
+  // unlike the ephemeral background worker, which is exactly why the
+  // cadence lives here rather than a background timer.
+  const SCREENSHOT_TICK_MS = 2000;
+  let screenshotTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const screenshotTick = (): void => {
+    void runtime?.sendMessage({ type: "bb:screenshot-tick" }).catch(() => undefined);
+    screenshotTimer = setTimeout(screenshotTick, SCREENSHOT_TICK_MS);
+  };
+
+  // Full-page on-demand capture driver: background asks this script to
+  // scroll to each viewport-height step and reports back the page's
+  // dimensions so background knows how many steps remain; background alone
+  // calls captureVisibleTab (content scripts can't).
+  runtime?.onMessage.addListener((message, _sender, sendResponse) => {
+    const msg = message as { type?: string; action?: "start" | "stop"; index?: number };
+    if (msg.type === "bb:screenshot-tick-control") {
+      clearTimeout(screenshotTimer);
+      if (msg.action === "start") screenshotTimer = setTimeout(screenshotTick, SCREENSHOT_TICK_MS);
+      return false;
+    }
+    if (msg.type === "bb:scroll-step") {
+      if (msg.index === -1) {
+        window.scrollTo(0, 0); // restore scroll position once the tile sequence is done
+        sendResponse({});
+        return true;
+      }
+      window.scrollTo(0, (msg.index ?? 0) * window.innerHeight);
+      setTimeout(() => {
+        // Let reflow/lazy-loaded images settle before background captures
+        // this tile.
+        sendResponse({
+          scrollHeight: document.documentElement.scrollHeight,
+          viewportHeight: window.innerHeight,
+        });
+      }, 300);
+      return true; // async reply
+    }
+    return false;
+  });
 })();
