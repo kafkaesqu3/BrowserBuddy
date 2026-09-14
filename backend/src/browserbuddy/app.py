@@ -110,7 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             storage, app.state.blobs, app.state.settings, auth.client_id, envelope
                         )
                         storage.set_last_seq(auth.client_id, envelope.seq)
-                    except (sqlite3.IntegrityError, NoActiveSessionError) as exc:
+                    except (sqlite3.IntegrityError, NoActiveSessionError, OSError) as exc:
                         logger.warning("Rejected event seq=%d: %s", envelope.seq, exc)
                         await ws.send_json({"type": "error", "detail": str(exc)})
                         continue
