@@ -7,3 +7,4 @@ __pycache__/
 
 # Claude Code agent state
 .agent
+.worktrees/
