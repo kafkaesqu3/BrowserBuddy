@@ -3,9 +3,12 @@ import {
   linkClickEvent,
   pageCaptureEvent,
   pageDwellEvent,
+  pageScreenshotEvent,
   type ClickMessage,
   type PageMessage,
 } from "./capture";
+import { dataUrlToBytes, toHttpUrl, uploadBlob } from "./blobs";
+import { intervalElapsed, scrollStepCount } from "./screenshot";
 import { navEdgeEvent } from "./navigation";
 import { EventQueue } from "./queue";
 import { loadSettings } from "./settings";
@@ -119,10 +122,48 @@ function setBadge(status: "recording" | "paused" | null): void {
   });
 }
 
+let tickingTabId: number | null = null;
+
+function tellTab(tabId: number, action: "start" | "stop"): void {
+  void browser.tabs
+    .sendMessage(tabId, { type: "bb:screenshot-tick-control", action })
+    .catch(() => undefined); // no content script in this tab (e.g. a protected page) — fine
+}
+
+/** Ensure exactly the given tab (or none) is running the screenshot tick
+ * loop. O(1) regardless of how many tabs are open — only ever one tab ticks
+ * at a time, toggled on focus change. See the design spec's
+ * scheduling-mechanism rationale for why this beats browser.alarms (too
+ * coarse a floor for a configurable sub-minute interval) and a bare
+ * background setInterval (only survives because WS heartbeat traffic
+ * happens to prevent worker suspension — fragile independent of backend
+ * uptime, and doesn't need to be relied on here). */
+function setTickingTab(tabId: number | null): void {
+  if (tickingTabId === tabId) return;
+  if (tickingTabId !== null) tellTab(tickingTabId, "stop");
+  tickingTabId = tabId;
+  if (tabId !== null) tellTab(tabId, "start");
+}
+
+/** Derive ticking state from persisted session state (idempotent), mirroring
+ * syncCaptureState. Call together with it wherever session lifecycle
+ * changes (start/stop/pause/resume, wake reconcile). */
+async function syncTickingState(): Promise<void> {
+  const state = await sessionManager.current();
+  if (state?.status !== "recording") {
+    setTickingTab(null);
+    return;
+  }
+  const [tab] = await browser.tabs.query({ active: true, lastFocusedWindow: true });
+  setTickingTab(tab?.id ?? null);
+}
+
 interface SessionCommand {
   type: "bb:session";
-  action: "start" | "pause" | "resume" | "stop" | "status";
+  action: "start" | "pause" | "resume" | "stop" | "status" | "update-capture";
   name?: string;
+  screenshotsEnabled?: boolean;
+  screenshotIntervalMs?: number;
 }
 
 // One mutex for lifecycle side effects (capture registration + badge): the
@@ -156,11 +197,21 @@ async function handleSessionCommand(
         // backend's min_length=1 validation error-drops the event and every
         // capture behind it.
         const name = cmd.name?.trim() || "untitled session";
-        const { event } = await sessionManager.start(name);
+        const capture = {
+          screenshotsEnabled: cmd.screenshotsEnabled ?? false,
+          screenshotIntervalMs: cmd.screenshotIntervalMs ?? 30_000,
+        };
+        const { event } = await sessionManager.start(name, capture);
         await queue.enqueue(event);
         await (await ensureClient()).notifyEnqueued();
         break;
       }
+      case "update-capture":
+        await sessionManager.updateCapture({
+          screenshotsEnabled: cmd.screenshotsEnabled ?? false,
+          screenshotIntervalMs: cmd.screenshotIntervalMs ?? 30_000,
+        });
+        break;
       case "pause":
         // Deliberately does not touch the dwell map: dwell is not gated on
         // pause (spec §3, "deliberately not a boundary") — the underlying
@@ -184,6 +235,7 @@ async function handleSessionCommand(
         break;
     }
     await syncCaptureState();
+    await syncTickingState();
   });
   return { session: await sessionManager.current(), connection: clientStatus };
 }
@@ -343,6 +395,77 @@ async function sendDwell(flush: { url: string; dwellMs: number } | null): Promis
   await (await ensureClient()).notifyEnqueued();
 }
 
+async function captureTile(tabId: number, windowId: number): Promise<string | null> {
+  let dataUrl: string;
+  try {
+    dataUrl = await browser.tabs.captureVisibleTab(windowId, { format: "jpeg", quality: 70 });
+  } catch (e) {
+    console.warn("BrowserBuddy: screenshot capture failed", e);
+    return null;
+  }
+  const settings = await loadSettings(local);
+  try {
+    return await uploadBlob(toHttpUrl(settings.backendUrl), settings.secret, dataUrlToBytes(dataUrl));
+  } catch (e) {
+    // Best-effort, no retry buffer — see the design spec's "backend assumed
+    // reachable" scope decision.
+    console.warn("BrowserBuddy: screenshot upload failed", e);
+    return null;
+  }
+}
+
+const lastScreenshotAt = new Map<number, number>();
+
+/** Handle a bb:screenshot-tick heartbeat from a content script. The tab is
+ * necessarily the one background designated active (see setTickingTab) —
+ * this re-check guards a stale tick from a tab that stopped being active a
+ * moment ago, racing its own "stop" message. */
+async function handleScreenshotTick(tabId: number | undefined): Promise<void> {
+  if (tabId === undefined || tabId !== tickingTabId) return;
+  const state = await sessionManager.current();
+  if (state?.status !== "recording" || !state.screenshotsEnabled) return;
+  const now = Date.now();
+  const last = lastScreenshotAt.get(tabId) ?? 0;
+  if (!intervalElapsed(now, last, state.screenshotIntervalMs)) return;
+  const tab = await browser.tabs.get(tabId).catch(() => null);
+  if (!tab?.url || tab.windowId === undefined) return;
+  const key = await captureTile(tabId, tab.windowId);
+  if (!key) return;
+  lastScreenshotAt.set(tabId, now);
+  await queue.enqueue(pageScreenshotEvent(tab.url, "periodic", [key]));
+  await (await ensureClient()).notifyEnqueued();
+}
+
+/** On-demand full-page capture: scroll the tab in viewport-height steps
+ * (driven by the content script, which alone has DOM access), capturing a
+ * tile at each stop, then ship all tiles as one page_screenshot event for
+ * the backend to stitch. */
+async function captureFullPage(tabId: number): Promise<void> {
+  const tab = await browser.tabs.get(tabId).catch(() => null);
+  if (!tab?.url || tab.windowId === undefined) return;
+  const first = await browser.tabs
+    .sendMessage(tabId, { type: "bb:scroll-step", index: 0 })
+    .catch(() => null);
+  if (!first) return;
+  const { scrollHeight, viewportHeight } = first as { scrollHeight: number; viewportHeight: number };
+  const steps = scrollStepCount(scrollHeight, viewportHeight);
+  const keys: string[] = [];
+  for (let i = 0; i < steps; i++) {
+    if (i > 0) {
+      const ok = await browser.tabs
+        .sendMessage(tabId, { type: "bb:scroll-step", index: i })
+        .catch(() => null);
+      if (!ok) break;
+    }
+    const key = await captureTile(tabId, tab.windowId);
+    if (key) keys.push(key);
+  }
+  await browser.tabs.sendMessage(tabId, { type: "bb:scroll-step", index: -1 }).catch(() => undefined);
+  if (keys.length === 0) return;
+  await queue.enqueue(pageScreenshotEvent(tab.url, "on_demand_fullpage", keys));
+  await (await ensureClient()).notifyEnqueued();
+}
+
 async function handleCommitted(details: {
   tabId: number;
   frameId: number;
@@ -387,6 +510,7 @@ browser.tabs.onActivated.addListener((info) => {
       // precondition is "focused window's active tab only".
       if (win.focused) {
         void tracker.recordActivation(info.tabId, info.windowId).then(scheduleSnapshot);
+        logged(syncTickingState());
       } else {
         scheduleSnapshot();
       }
@@ -420,6 +544,7 @@ browser.tabs.onUpdated.addListener((_id, changeInfo) => {
 browser.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === browser.windows.WINDOW_ID_NONE) {
     logged(tracker.recordFocusLost().then(scheduleSnapshot));
+    setTickingTab(null); // browser itself lost focus — nothing is "the active tab"
   } else {
     logged(
       browser.tabs.query({ active: true, windowId }).then(([tab]) => {
@@ -428,6 +553,7 @@ browser.windows.onFocusChanged.addListener((windowId) => {
         }
       }),
     );
+    logged(syncTickingState());
   }
 });
 
@@ -472,6 +598,19 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     logged(handleClickMessage(message as ClickMessage));
     return false; // fire-and-forget
   }
+  if (msg?.type === "bb:screenshot-tick") {
+    logged(handleScreenshotTick(sender.tab?.id));
+    return false;
+  }
+  if (msg?.type === "bb:capture-fullpage") {
+    logged(
+      sessionManager.current().then((s) => {
+        if (s?.status !== "recording" || tickingTabId === null) return;
+        return captureFullPage(tickingTabId);
+      }),
+    );
+    return false;
+  }
   if (msg?.type === "bb:session") {
     handleSessionCommand(msg as SessionCommand).then(sendResponse, async (e) => {
       console.warn("BrowserBuddy: session command failed", e);
@@ -495,6 +634,7 @@ browser.storage.onChanged.addListener((changes, area) => {
 
 void ensureClient();
 
-// Reconcile capture registration + badge with persisted session state on
-// wake: a browser restart keeps the session recording (user never said stop).
-logged(serializeLifecycle(syncCaptureState));
+// Reconcile capture registration + badge + screenshot ticking with
+// persisted session state on wake: a browser restart keeps the session
+// recording (user never said stop).
+logged(serializeLifecycle(() => syncCaptureState().then(syncTickingState)));
