@@ -501,10 +501,6 @@ async function handleCommitted(details: {
   transitionQualifiers?: string[];
 }): Promise<void> {
   if (details.frameId !== 0) return; // top-frame navigations only
-  // A top-level navigation destroys the document running the tick loop and
-  // creates a fresh content script with no timer. setTickingTab won't re-arm
-  // it (tickingTabId is unchanged), so send "start" directly.
-  if (details.tabId === tickingTabId) tellTab(details.tabId, "start");
   const fromUrl = await commitTabUrl(details.tabId, details.url);
   const state = await sessionManager.current();
   if (state?.status !== "recording") return;
@@ -631,6 +627,15 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   if (msg?.type === "bb:screenshot-tick") {
     logged(handleScreenshotTick(sender.tab?.id));
+    return false;
+  }
+  // A fresh content script (new document after an in-tab navigation) has no
+  // timer running, and setTickingTab won't re-arm it because tickingTabId
+  // never changed. Re-arm here instead — no dependence on injection timing.
+  if (msg?.type === "bb:screenshot-tick-hello") {
+    if (sender.tab?.id !== undefined && sender.tab.id === tickingTabId) {
+      tellTab(sender.tab.id, "start");
+    }
     return false;
   }
   if (msg?.type === "bb:capture-fullpage") {

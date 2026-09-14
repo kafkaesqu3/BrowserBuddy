@@ -10,6 +10,16 @@ import { extractLinks, extractPage } from "./extract";
 // new-tab opens).
 (() => {
   const runtime = (globalThis as { browser?: typeof browser }).browser?.runtime;
+
+  // Announce readiness to the background on every load (including after an
+  // in-tab navigation, which destroys and recreates this script with no
+  // running timer). The background replies "start" if this tab is the one
+  // currently designated for ticking — see setTickingTab in background.ts.
+  // This also covers the MV3-worker-revival case: if the background is
+  // asleep when this fires, the message wakes it via the same mechanism
+  // bb:screenshot-tick already relies on.
+  void runtime?.sendMessage({ type: "bb:screenshot-tick-hello" }).catch(() => undefined);
+
   let lastSentLength = 0;
   let step = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
