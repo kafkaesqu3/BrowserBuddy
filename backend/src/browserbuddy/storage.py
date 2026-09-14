@@ -1,6 +1,7 @@
 import sqlite3
 
 from browserbuddy.models import HistoryVisit, OutboundLink, TabRecord
+from browserbuddy.phash import hamming_distance
 
 
 class NoActiveSessionError(LookupError):
@@ -320,3 +321,57 @@ class Storage:
                 (dwell_ms, row["id"]),
             )
         return True
+
+    def add_page_screenshot(
+        self,
+        session_id: int,
+        *,
+        url: str,
+        occurred_at: int,
+        kind: str,
+        blob_key: str,
+        phash: str,
+        dedup_threshold: int,
+    ) -> int | None:
+        """Insert a screenshots row for the latest page_visit at url in this
+        session, unless it's a near-duplicate (Hamming distance <=
+        dedup_threshold) of that page_visit's most recently stored
+        screenshot. Returns the new row id, or None when the page was never
+        captured (orphan, same convention as mark_link_clicked/
+        add_page_dwell) or the capture was deduped away.
+        """
+        row = self._conn.execute(
+            "SELECT id FROM page_visits WHERE session_id = ? AND url = ?"
+            " ORDER BY visited_at DESC LIMIT 1",
+            (session_id, url),
+        ).fetchone()
+        if row is None:
+            return None
+        page_visit_id = row["id"]
+        latest = self._conn.execute(
+            "SELECT phash FROM screenshots WHERE page_visit_id = ?"
+            " ORDER BY captured_at DESC, id DESC LIMIT 1",
+            (page_visit_id,),
+        ).fetchone()
+        if latest is not None and hamming_distance(latest["phash"], phash) <= dedup_threshold:
+            return None
+        with self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO screenshots (page_visit_id, blob_key, captured_at, kind, phash)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (page_visit_id, blob_key, occurred_at, kind, phash),
+            )
+        return cur.lastrowid
+
+    def list_screenshots(self, session_id: int, url: str | None = None) -> list[sqlite3.Row]:
+        query = (
+            "SELECT sc.id, sc.blob_key, sc.captured_at, sc.kind, p.url"
+            " FROM screenshots sc JOIN page_visits p ON p.id = sc.page_visit_id"
+            " WHERE p.session_id = ?"
+        )
+        params: list[int | str] = [session_id]
+        if url is not None:
+            query += " AND p.url = ?"
+            params.append(url)
+        query += " ORDER BY sc.captured_at, sc.id"
+        return self._conn.execute(query, params).fetchall()
