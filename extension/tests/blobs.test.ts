@@ -1,16 +1,22 @@
 import { expect, test, vi } from "vitest";
 import { dataUrlToBytes, toHttpUrl, uploadBlob } from "@src/blobs";
 
-test("toHttpUrl converts ws to http", () => {
-  expect(toHttpUrl("ws://127.0.0.1:8765/ws")).toBe("http://127.0.0.1:8765/ws");
+test("toHttpUrl converts ws to http and drops the path", () => {
+  expect(toHttpUrl("ws://127.0.0.1:8765/ws")).toBe("http://127.0.0.1:8765");
 });
 
-test("toHttpUrl converts wss to https", () => {
-  expect(toHttpUrl("wss://example.com/ws")).toBe("https://example.com/ws");
+test("toHttpUrl converts wss to https and drops the path", () => {
+  expect(toHttpUrl("wss://example.com/ws")).toBe("https://example.com");
 });
 
 test("toHttpUrl leaves a non-ws url unchanged", () => {
   expect(toHttpUrl("http://already-http.com")).toBe("http://already-http.com");
+});
+
+test("toHttpUrl composes with the blob path to hit the backend's actual route", () => {
+  expect(toHttpUrl("ws://127.0.0.1:8765/ws") + "/api/blobs").toBe(
+    "http://127.0.0.1:8765/api/blobs",
+  );
 });
 
 test("dataUrlToBytes decodes the base64 payload", () => {

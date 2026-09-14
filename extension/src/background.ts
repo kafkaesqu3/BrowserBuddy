@@ -395,6 +395,8 @@ async function sendDwell(flush: { url: string; dwellMs: number } | null): Promis
   await (await ensureClient()).notifyEnqueued();
 }
 
+const MAX_FULLPAGE_TILES = 20;
+
 async function captureTile(tabId: number, windowId: number): Promise<string | null> {
   let dataUrl: string;
   try {
@@ -427,11 +429,14 @@ async function handleScreenshotTick(tabId: number | undefined): Promise<void> {
   const now = Date.now();
   const last = lastScreenshotAt.get(tabId) ?? 0;
   if (!intervalElapsed(now, last, state.screenshotIntervalMs)) return;
+  // Consume this interval slot regardless of outcome: a failed capture/upload
+  // must not retry on every subsequent tick (as often as every 2s) — see the
+  // "no retry buffer" scope decision.
+  lastScreenshotAt.set(tabId, now);
   const tab = await browser.tabs.get(tabId).catch(() => null);
   if (!tab?.url || tab.windowId === undefined) return;
   const key = await captureTile(tabId, tab.windowId);
   if (!key) return;
-  lastScreenshotAt.set(tabId, now);
   await queue.enqueue(pageScreenshotEvent(tab.url, "periodic", [key]));
   await (await ensureClient()).notifyEnqueued();
 }
@@ -448,7 +453,7 @@ async function captureFullPage(tabId: number): Promise<void> {
     .catch(() => null);
   if (!first) return;
   const { scrollHeight, viewportHeight } = first as { scrollHeight: number; viewportHeight: number };
-  const steps = scrollStepCount(scrollHeight, viewportHeight);
+  const steps = Math.min(scrollStepCount(scrollHeight, viewportHeight), MAX_FULLPAGE_TILES);
   const keys: string[] = [];
   for (let i = 0; i < steps; i++) {
     if (i > 0) {
@@ -458,7 +463,13 @@ async function captureFullPage(tabId: number): Promise<void> {
       if (!ok) break;
     }
     const key = await captureTile(tabId, tab.windowId);
-    if (key) keys.push(key);
+    // A dropped tile mid-capture would ship an incomplete-but-plausible
+    // stitched image; abort the whole capture instead of shipping a partial.
+    if (!key) {
+      keys.length = 0;
+      break;
+    }
+    keys.push(key);
   }
   await browser.tabs.sendMessage(tabId, { type: "bb:scroll-step", index: -1 }).catch(() => undefined);
   if (keys.length === 0) return;

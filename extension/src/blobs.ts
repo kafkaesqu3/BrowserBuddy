@@ -8,9 +8,9 @@
 /** Settings.backendUrl is a ws(s):// URL (the WS ingest endpoint); the REST
  * blob endpoint lives on the same host/port over plain HTTP(S). */
 export function toHttpUrl(wsUrl: string): string {
-  if (wsUrl.startsWith("wss://")) return `https://${wsUrl.slice(6)}`;
-  if (wsUrl.startsWith("ws://")) return `http://${wsUrl.slice(5)}`;
-  return wsUrl;
+  const u = new URL(wsUrl);
+  const scheme = u.protocol === "wss:" ? "https:" : u.protocol === "ws:" ? "http:" : u.protocol;
+  return `${scheme}//${u.host}`;
 }
 
 /** Decode a data: URL (as returned by tabs.captureVisibleTab) into raw bytes. */
