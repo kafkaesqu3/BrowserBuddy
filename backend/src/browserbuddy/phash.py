@@ -18,7 +18,7 @@ def difference_hash(image_bytes: bytes) -> str:
     resize differences; a shift in overall brightness or color doesn't
     change it, only the pattern of local light/dark transitions does."""
     img = Image.open(io.BytesIO(image_bytes)).convert("L").resize((9, 8))
-    pixels = list(img.getdata())
+    pixels = list(img.tobytes())
     value = 0
     for row in range(8):
         offset = row * 9
