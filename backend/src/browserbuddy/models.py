@@ -96,6 +96,14 @@ class PageDwellEvent(ProtocolModel):
     occurred_at: int = Field(ge=0)
 
 
+class PageScreenshotEvent(ProtocolModel):
+    type: Literal["page_screenshot"]
+    url: str = Field(min_length=1)
+    occurred_at: int = Field(ge=0)
+    kind: Literal["periodic", "on_demand_viewport", "on_demand_fullpage"]
+    blob_keys: list[str] = Field(min_length=1)
+
+
 class AuthMessage(ProtocolModel):
     type: Literal["auth"]
     secret: str = Field(min_length=1)
@@ -121,4 +129,5 @@ class EventEnvelope(ProtocolModel):
         | LinkClickEvent
         | NavEdgeEvent
         | PageDwellEvent
+        | PageScreenshotEvent
     ) = Field(discriminator="type")

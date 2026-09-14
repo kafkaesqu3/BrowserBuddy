@@ -197,3 +197,72 @@ def test_page_dwell_rejects_negative_dwell():
                 },
             }
         )
+
+
+def test_page_screenshot_validates():
+    env = EventEnvelope.model_validate(
+        {
+            "v": 1,
+            "seq": 1,
+            "event": {
+                "type": "page_screenshot",
+                "url": "https://a.com",
+                "occurred_at": 9,
+                "kind": "periodic",
+                "blob_keys": ["abc123"],
+            },
+        }
+    )
+    assert env.event.type == "page_screenshot"
+    assert env.event.blob_keys == ["abc123"]
+
+
+def test_page_screenshot_carries_multiple_tile_keys():
+    env = EventEnvelope.model_validate(
+        {
+            "v": 1,
+            "seq": 1,
+            "event": {
+                "type": "page_screenshot",
+                "url": "https://a.com",
+                "occurred_at": 9,
+                "kind": "on_demand_fullpage",
+                "blob_keys": ["k1", "k2", "k3"],
+            },
+        }
+    )
+    assert env.event.blob_keys == ["k1", "k2", "k3"]
+
+
+def test_page_screenshot_rejects_empty_blob_keys():
+    with pytest.raises(ValidationError):
+        EventEnvelope.model_validate(
+            {
+                "v": 1,
+                "seq": 1,
+                "event": {
+                    "type": "page_screenshot",
+                    "url": "https://a.com",
+                    "occurred_at": 9,
+                    "kind": "periodic",
+                    "blob_keys": [],
+                },
+            }
+        )
+
+
+def test_page_screenshot_rejects_unknown_kind():
+    with pytest.raises(ValidationError):
+        EventEnvelope.model_validate(
+            {
+                "v": 1,
+                "seq": 1,
+                "event": {
+                    "type": "page_screenshot",
+                    "url": "https://a.com",
+                    "occurred_at": 9,
+                    "kind": "bogus",
+                    "blob_keys": ["k1"],
+                },
+            }
+        )
