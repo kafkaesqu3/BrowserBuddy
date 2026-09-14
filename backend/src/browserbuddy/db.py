@@ -143,6 +143,23 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE page_visits ADD COLUMN dwell_ms INTEGER NOT NULL DEFAULT 0;
     """,
+    # v6: screenshots (Slice C). One row per stored capture — near-duplicates
+    # (Hamming distance <= a tunable threshold) are rejected before insert,
+    # not stored and pruned, so this table only ever holds screenshots the
+    # dedup pass judged distinct. blob_key points at the (possibly stitched,
+    # for on_demand_fullpage) final image in the blob store.
+    """
+    CREATE TABLE screenshots (
+        id INTEGER PRIMARY KEY,
+        page_visit_id INTEGER NOT NULL REFERENCES page_visits (id),
+        blob_key TEXT NOT NULL,
+        captured_at INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('periodic', 'on_demand_viewport', 'on_demand_fullpage')),
+        phash TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_screenshots_page_visit ON screenshots (page_visit_id);
+    """,
 ]
 
 

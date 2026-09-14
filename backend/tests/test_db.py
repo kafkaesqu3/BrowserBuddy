@@ -139,3 +139,25 @@ def test_v5_migration_adds_dwell_column_and_keeps_data(tmp_path, monkeypatch):
     assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 5
     assert conn.execute("SELECT dwell_ms FROM page_visits").fetchone()[0] == 0  # backfills to 0
     conn.close()
+
+
+def test_v6_migration_adds_screenshots_table_and_keeps_data(tmp_path, monkeypatch):
+    path = tmp_path / "t.db"
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:5])
+    conn = db.connect(path)  # v1-v5 only
+    conn.execute("INSERT INTO sessions (client_id, name, started_at) VALUES ('c', 's', 1)")
+    conn.execute(
+        "INSERT INTO page_visits (session_id, url, visited_at) VALUES (1, 'https://a.com', 10)"
+    )
+    conn.commit()
+    conn.close()
+    monkeypatch.undo()
+    conn = db.connect(path)  # applies v6 (and any later migrations) on top of v1-v5 data
+    assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 6
+    conn.execute(
+        "INSERT INTO screenshots (page_visit_id, blob_key, captured_at, kind, phash)"
+        " VALUES (1, 'k', 100, 'periodic', '0' * 16)"
+    )
+    row = conn.execute("SELECT url FROM page_visits WHERE id = 1").fetchone()
+    assert row["url"] == "https://a.com"  # v1-v5 data intact
+    conn.close()
