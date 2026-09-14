@@ -56,12 +56,14 @@ def test_get_finds_uncompressed_blob(tmp_path):
     assert store.get(key) == data
 
 
-def test_path_for_defaults_to_compressed():
-    store = BlobStore.__new__(BlobStore)  # no filesystem needed for this check
-    store._root = None  # type: ignore[assignment]
+def test_path_for_defaults_to_compressed(tmp_path):
+    store = BlobStore(tmp_path / "blobs")
     # path_for with no compressed kwarg still resolves the .gz suffix, matching
     # every existing caller (HTML blobs) which never passes the kwarg.
-    import pathlib
+    assert store.path_for("a" * 64).suffix == ".gz"
 
-    store._root = pathlib.Path("/tmp/unused")
-    assert store.path_for("abc").suffix == ".gz"
+
+def test_path_for_rejects_malformed_key(tmp_path):
+    store = BlobStore(tmp_path / "blobs")
+    with pytest.raises(ValueError, match="not a content key"):
+        store.path_for("../../../../etc/passwd")

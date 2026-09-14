@@ -651,7 +651,40 @@ def test_ws_page_screenshot_unresolvable_blob_key_gets_error_frame_not_dropped_c
                     "url": "https://a.com",
                     "occurred_at": 200,
                     "kind": "periodic",
-                    "blob_keys": ["never-uploaded-key"],
+                    "blob_keys": ["0" * 64],  # valid format, never uploaded
+                },
+            )
+        )
+        assert ws.receive_json()["type"] == "error"
+        # Connection must stay usable: the bad event's seq is never
+        # committed, so a subsequent valid event at the same seq still acks.
+        ws.send_json(
+            _envelope(
+                3,
+                {
+                    "type": "page_dwell",
+                    "url": "https://a.com",
+                    "dwell_ms": 100,
+                    "occurred_at": 201,
+                },
+            )
+        )
+        assert ws.receive_json() == {"type": "ack", "seq": 3}
+
+
+def test_ws_page_screenshot_malformed_blob_key_gets_error_frame_not_dropped_connection(client, app):
+    _start_session_and_capture(client, app)
+    with client.websocket_connect("/ws") as ws:
+        _auth(ws, app)
+        ws.send_json(
+            _envelope(
+                3,
+                {
+                    "type": "page_screenshot",
+                    "url": "https://a.com",
+                    "occurred_at": 200,
+                    "kind": "periodic",
+                    "blob_keys": ["not-a-valid-key"],
                 },
             )
         )

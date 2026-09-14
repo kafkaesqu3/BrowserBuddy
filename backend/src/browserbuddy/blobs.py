@@ -11,7 +11,10 @@ same bytes once and not another time) never collide on disk. Layout:
 
 import gzip
 import hashlib
+import re
 from pathlib import Path
+
+_KEY_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 
 
 class BlobStore:
@@ -20,6 +23,8 @@ class BlobStore:
         root.mkdir(parents=True, exist_ok=True)
 
     def path_for(self, key: str, *, compressed: bool = True) -> Path:
+        if not _KEY_RE.match(key):
+            raise ValueError(f"not a content key: {key!r}")
         suffix = ".gz" if compressed else ".bin"
         return self._root / key[:2] / f"{key[2:]}{suffix}"
 

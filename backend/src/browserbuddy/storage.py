@@ -364,6 +364,9 @@ class Storage:
         return cur.lastrowid
 
     def list_screenshots(self, session_id: int, url: str | None = None) -> list[sqlite3.Row]:
+        """List screenshots for this session, joined with their page_visits row;
+        url (when given) filters on page_visits.url, not any screenshots column,
+        and each returned row is that join's projection, not a raw table row."""
         query = (
             "SELECT sc.id, sc.blob_key, sc.captured_at, sc.kind, p.url"
             " FROM screenshots sc JOIN page_visits p ON p.id = sc.page_visit_id"

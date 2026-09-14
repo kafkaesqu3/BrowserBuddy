@@ -156,7 +156,7 @@ def test_v6_migration_adds_screenshots_table_and_keeps_data(tmp_path, monkeypatc
     assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] >= 6
     conn.execute(
         "INSERT INTO screenshots (page_visit_id, blob_key, captured_at, kind, phash)"
-        " VALUES (1, 'k', 100, 'periodic', '0' * 16)"
+        " VALUES (1, 'k', 100, 'periodic', '0000000000000000')"
     )
     row = conn.execute("SELECT url FROM page_visits WHERE id = 1").fetchone()
     assert row["url"] == "https://a.com"  # v1-v5 data intact

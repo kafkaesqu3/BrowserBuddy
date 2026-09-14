@@ -110,7 +110,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             storage, app.state.blobs, app.state.settings, auth.client_id, envelope
                         )
                         storage.set_last_seq(auth.client_id, envelope.seq)
-                    except (sqlite3.IntegrityError, NoActiveSessionError, OSError) as exc:
+                    except (
+                        sqlite3.IntegrityError,
+                        NoActiveSessionError,
+                        OSError,
+                        ValueError,
+                    ) as exc:
                         logger.warning("Rejected event seq=%d: %s", envelope.seq, exc)
                         await ws.send_json({"type": "error", "detail": str(exc)})
                         continue
@@ -119,6 +124,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             pass
 
     return app
+
+
+def _require_active_session(storage: Storage, client_id: str, event_name: str) -> sqlite3.Row:
+    active = storage.get_active_session(client_id)
+    if active is None:
+        raise NoActiveSessionError(f"{event_name} with no active session")
+    return active
 
 
 async def _apply_event(
@@ -138,9 +150,7 @@ async def _apply_event(
     elif isinstance(event, SessionEndEvent):
         storage.end_session(client_id, event.ended_at)  # False = already ended; fine
     elif isinstance(event, PageCaptureEvent):
-        active = storage.get_active_session(client_id)
-        if active is None:
-            raise NoActiveSessionError("page_capture with no active session")
+        active = _require_active_session(storage, client_id, "page_capture")
         html_key = await asyncio.to_thread(blobs.put, event.html.encode()) if event.html else None
         page_visit_id = storage.add_page_visit(
             active["id"],
@@ -154,9 +164,7 @@ async def _apply_event(
         if event.links:
             storage.add_outbound_links(page_visit_id, event.links)
     elif isinstance(event, NavEdgeEvent):
-        active = storage.get_active_session(client_id)
-        if active is None:
-            raise NoActiveSessionError("nav_edge with no active session")
+        active = _require_active_session(storage, client_id, "nav_edge")
         storage.add_nav_edge(
             active["id"],
             from_url=event.from_url,
@@ -167,22 +175,16 @@ async def _apply_event(
             occurred_at=event.occurred_at,
         )
     elif isinstance(event, LinkClickEvent):
-        active = storage.get_active_session(client_id)
-        if active is None:
-            raise NoActiveSessionError("link_click with no active session")
+        active = _require_active_session(storage, client_id, "link_click")
         storage.mark_link_clicked(
             active["id"], page_url=event.page_url, href=event.href, text=event.text
         )
     elif isinstance(event, PageDwellEvent):
-        active = storage.get_active_session(client_id)
-        if active is None:
-            raise NoActiveSessionError("page_dwell with no active session")
+        active = _require_active_session(storage, client_id, "page_dwell")
         storage.add_page_dwell(active["id"], url=event.url, dwell_ms=event.dwell_ms)
     elif isinstance(event, PageScreenshotEvent):
-        active = storage.get_active_session(client_id)
-        if active is None:
-            raise NoActiveSessionError("page_screenshot with no active session")
-        tiles = [blobs.get(k) for k in event.blob_keys]
+        active = _require_active_session(storage, client_id, "page_screenshot")
+        tiles = await asyncio.to_thread(lambda: [blobs.get(k) for k in event.blob_keys])
         if len(tiles) == 1:
             image_bytes, blob_key = tiles[0], event.blob_keys[0]
         else:
