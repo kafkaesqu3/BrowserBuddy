@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     data_dir: Path = Path.home() / ".browserbuddy"
     host: str = "127.0.0.1"
     port: int = 8765
+    # Max Hamming distance (of 64 bits) between a new screenshot's
+    # difference-hash and its page_visit's most recent one to be treated as
+    # a duplicate and discarded. 0 disables dedup; 64 keeps only the first
+    # screenshot ever taken per page.
+    screenshot_dedup_threshold: int = 8
 
     @property
     def db_path(self) -> Path:

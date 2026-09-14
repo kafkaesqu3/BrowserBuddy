@@ -16,3 +16,9 @@ def test_env_override_and_dir_creation(tmp_path, monkeypatch):
     assert s.port == 9999
     assert s.data_dir == tmp_path / "bb"
     assert s.data_dir.is_dir()  # get_settings creates it
+
+
+def test_screenshot_dedup_threshold_default_and_override(monkeypatch):
+    assert Settings().screenshot_dedup_threshold == 8
+    monkeypatch.setenv("BROWSERBUDDY_SCREENSHOT_DEDUP_THRESHOLD", "3")
+    assert Settings().screenshot_dedup_threshold == 3
