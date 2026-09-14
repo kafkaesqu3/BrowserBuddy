@@ -112,7 +112,9 @@ import { extractLinks, extractPage } from "./extract";
     }
     if (msg.type === "bb:scroll-step") {
       if (msg.index === -1) {
-        window.scrollTo(0, 0); // restore scroll position once the tile sequence is done
+        // reset scroll to top now that the tile sequence is done (not a
+        // restore — the user's pre-capture position isn't tracked)
+        window.scrollTo(0, 0);
         sendResponse({});
         return true;
       }

@@ -2,6 +2,8 @@ interface SessionView {
   name: string;
   startedAt: number;
   status: "recording" | "paused";
+  screenshotsEnabled: boolean;
+  screenshotIntervalMs: number;
 }
 interface SessionReply {
   session: SessionView | null;
@@ -40,6 +42,14 @@ function render(reply: SessionReply): void {
     sessionEl.className = s.status;
     pauseBtn.classList.toggle("hidden", s.status !== "recording");
     resumeBtn.classList.toggle("hidden", s.status !== "paused");
+    // Hydrate the capture controls from session state, but never clobber the
+    // input the user is currently in — a `change` on the other one re-renders.
+    if (document.activeElement !== screenshotsEnabledInput) {
+      screenshotsEnabledInput.checked = s.screenshotsEnabled;
+    }
+    if (document.activeElement !== screenshotIntervalInput) {
+      screenshotIntervalInput.value = String(s.screenshotIntervalMs / 1000);
+    }
   }
   connectionEl.textContent = `Backend: ${reply.connection}`;
 }

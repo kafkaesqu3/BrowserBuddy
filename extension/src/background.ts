@@ -441,40 +441,56 @@ async function handleScreenshotTick(tabId: number | undefined): Promise<void> {
   await (await ensureClient()).notifyEnqueued();
 }
 
+// Concurrent runs would interleave their scroll steps and captureVisibleTab
+// calls against the same tab, stitching tiles from the wrong offsets. A
+// second "Capture now" while one is running is simply ignored.
+let fullPageCaptureInFlight = false;
+
 /** On-demand full-page capture: scroll the tab in viewport-height steps
  * (driven by the content script, which alone has DOM access), capturing a
  * tile at each stop, then ship all tiles as one page_screenshot event for
  * the backend to stitch. */
 async function captureFullPage(tabId: number): Promise<void> {
-  const tab = await browser.tabs.get(tabId).catch(() => null);
-  if (!tab?.url || tab.windowId === undefined) return;
-  const first = await browser.tabs
-    .sendMessage(tabId, { type: "bb:scroll-step", index: 0 })
-    .catch(() => null);
-  if (!first) return;
-  const { scrollHeight, viewportHeight } = first as { scrollHeight: number; viewportHeight: number };
-  const steps = Math.min(scrollStepCount(scrollHeight, viewportHeight), MAX_FULLPAGE_TILES);
-  const keys: string[] = [];
-  for (let i = 0; i < steps; i++) {
-    if (i > 0) {
-      const ok = await browser.tabs
-        .sendMessage(tabId, { type: "bb:scroll-step", index: i })
-        .catch(() => null);
-      if (!ok) break;
+  if (fullPageCaptureInFlight) return;
+  fullPageCaptureInFlight = true;
+  try {
+    const tab = await browser.tabs.get(tabId).catch(() => null);
+    if (!tab?.url || tab.windowId === undefined) return;
+    const first = await browser.tabs
+      .sendMessage(tabId, { type: "bb:scroll-step", index: 0 })
+      .catch(() => null);
+    if (!first) return;
+    const { scrollHeight, viewportHeight } = first as {
+      scrollHeight: number;
+      viewportHeight: number;
+    };
+    const steps = Math.min(scrollStepCount(scrollHeight, viewportHeight), MAX_FULLPAGE_TILES);
+    const keys: string[] = [];
+    for (let i = 0; i < steps; i++) {
+      if (i > 0) {
+        const ok = await browser.tabs
+          .sendMessage(tabId, { type: "bb:scroll-step", index: i })
+          .catch(() => null);
+        if (!ok) break;
+      }
+      const key = await captureTile(tabId, tab.windowId);
+      // A dropped tile mid-capture would ship an incomplete-but-plausible
+      // stitched image; abort the whole capture instead of shipping a partial.
+      if (!key) {
+        keys.length = 0;
+        break;
+      }
+      keys.push(key);
     }
-    const key = await captureTile(tabId, tab.windowId);
-    // A dropped tile mid-capture would ship an incomplete-but-plausible
-    // stitched image; abort the whole capture instead of shipping a partial.
-    if (!key) {
-      keys.length = 0;
-      break;
-    }
-    keys.push(key);
+    await browser.tabs
+      .sendMessage(tabId, { type: "bb:scroll-step", index: -1 })
+      .catch(() => undefined);
+    if (keys.length === 0) return;
+    await queue.enqueue(pageScreenshotEvent(tab.url, "on_demand_fullpage", keys));
+    await (await ensureClient()).notifyEnqueued();
+  } finally {
+    fullPageCaptureInFlight = false;
   }
-  await browser.tabs.sendMessage(tabId, { type: "bb:scroll-step", index: -1 }).catch(() => undefined);
-  if (keys.length === 0) return;
-  await queue.enqueue(pageScreenshotEvent(tab.url, "on_demand_fullpage", keys));
-  await (await ensureClient()).notifyEnqueued();
 }
 
 async function handleCommitted(details: {
@@ -485,6 +501,10 @@ async function handleCommitted(details: {
   transitionQualifiers?: string[];
 }): Promise<void> {
   if (details.frameId !== 0) return; // top-frame navigations only
+  // A top-level navigation destroys the document running the tick loop and
+  // creates a fresh content script with no timer. setTickingTab won't re-arm
+  // it (tickingTabId is unchanged), so send "start" directly.
+  if (details.tabId === tickingTabId) tellTab(details.tabId, "start");
   const fromUrl = await commitTabUrl(details.tabId, details.url);
   const state = await sessionManager.current();
   if (state?.status !== "recording") return;
