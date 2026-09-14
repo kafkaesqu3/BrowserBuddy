@@ -49,3 +49,10 @@ notable links you saw but didn't follow.
 Pages you dwell on show up in `buddy search`'s results too (`dwell=42s`) —
 a crude, focus-gated figure from the same tab-active-time clock Tier-1
 already tracks, not a precise reading-time measurement.
+
+During a session, the popup's "Capture screenshots" toggle takes a
+dwell-gated viewport screenshot on a configurable interval (default 30s,
+adjustable live while recording), and the "📷 Capture now" button takes an
+on-demand full-page capture via scroll-and-stitch. `buddy screenshots
+<session>` lists what was captured; visually near-duplicate frames (a mostly
+static page) are deduped server-side and never stored.
