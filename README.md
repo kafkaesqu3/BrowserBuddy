@@ -56,3 +56,16 @@ adjustable live while recording), and the "📷 Capture now" button takes an
 on-demand full-page capture via scroll-and-stitch. `buddy screenshots
 <session>` lists what was captured; visually near-duplicate frames (a mostly
 static page) are deduped server-side and never stored.
+
+### Recall, memory tools, and digests (M4)
+
+The backend now exposes typed memory retrieval, cited recall answers, a read-only stdio MCP
+server, and queued session digests. New commands require `buddy serve`; existing `search`,
+`sessions`, `links`, and other local commands still work without it.
+
+See [backend setup and limitations](backend/README.md) for model configuration, optional
+semantic search, job recovery, and MCP connection instructions. Automatic digests are off
+by default. Screenshots are exposed as metadata; OCR and image understanding are not included.
+
+M4 integration is tested with deterministic model boundaries. The real embedding-model
+smoke check remains pending because the development environment blocked the model download.

@@ -327,7 +327,7 @@ not general-purpose.
 | **Entity extraction** | Not featured | Core feature — 15+ default entity types via PCRE, unlimited custom |
 | **Semantic search** | Yes — embeddings via local sentence-transformers | Not featured |
 | **Full-text search** | FTS5 + vector hybrid with session citations | Full-text + OCR across all captures |
-| **Cross-case query** | Sessions are isolated; search is within project | All entities in one DB — implicit cross-case correlation |
+| **Cross-case query** | Search spans captured sessions; optional session/time filters | All entities in one DB — implicit cross-case correlation |
 | **Storage** | SQLite + content-addressed blobs (open, portable) | Proprietary (undisclosed) |
 
 ### AI Capabilities
@@ -336,9 +336,9 @@ not general-purpose.
 |---|---|---|
 | **AI model** | Model-agnostic — any OpenAI-compatible endpoint (Ollama, OpenRouter, LiteLLM) | Bundled assistant (model undisclosed) |
 | **Recall Q&A** | Yes — the core feature; answers "what did I read about X?" with citations | No |
-| **Post-session digest** | Yes — AI-generated at session end | No equivalent |
+| **Post-session digest** | Queued snapshots; automatic generation is opt-in | No equivalent |
 | **OSINT prompt library** | No | Yes — preloaded OSINT-specific prompts |
-| **Image identification** | OCR on screenshots (in pipeline) | AI image ID + multi-engine reverse image search |
+| **Image identification** | Not implemented; screenshots are stored and listed as metadata | AI image ID + multi-engine reverse image search |
 | **File analysis** | Not featured | Yes |
 | **AI insights** | Recall Q&A + digest generation | Investigation insights + "Find++" (not fully documented) |
 | **MCP server** | Yes — typed tools: search_memory, get_open_tabs, list_sessions, get_page, get_screenshots | Yes (Pro, beta) — investigation graph + entities |
@@ -355,7 +355,7 @@ not general-purpose.
 | **Relationship graph** | None | Maltego-style entity graph (Pro) |
 | **OPSEC** | Excellent — no outbound calls except configured LLM | Risk — enrichments expose analyst's IP to third parties |
 | **Evidence preservation** | Raw HTML + screenshots, content-addressed | MHTML + screenshots; forensically defensible timestamps |
-| **Case management** | Sessions + projects | Cases + projects + tags + task lists |
+| **Case management** | Named sessions; no project-management feature | Cases + projects + tags + task lists |
 | **Collaboration** | Single user (local) | Multi-user (self-hosted) |
 
 ### Privacy & Deployment
@@ -408,7 +408,7 @@ not general-purpose.
   offline), OpenRouter, your organization's LLM endpoint. Ubikron's AI model
   is bundled and undisclosed.
 - **Open source + open formats** — data is always portable; no vendor lock-in;
-  the enrichment pipeline (extraction, embeddings, OCR) can be improved and
+  extraction and embedding processing can be improved and
   re-run over historical data.
 
 ### Ubikron wins on:
@@ -432,7 +432,7 @@ not general-purpose.
 - **Multi-user collaboration** — team investigations sharing a case database are
   not possible in BrowserBuddy.
 - **AI image analysis** — AI-driven image identification and multi-engine reverse
-  image search goes beyond BrowserBuddy's OCR-only approach.
+  image search goes beyond BrowserBuddy's screenshot-storage support.
 - **Evidence chain of custody** — MHTML + timestamps are forensically defensible
   in a way that serves legal proceedings and journalism.
 

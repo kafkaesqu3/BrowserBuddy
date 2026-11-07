@@ -1,6 +1,7 @@
 # M4 — Recall, hybrid search, MCP, and digests
 
-Status: proposed for review; no product implementation authorized by this document.
+Status: approved by user continuation; implemented on `feat/m4-recall`, acceptance closeout open.
+Validation: [smoke report](../smoke/2026-11-06-m4-smoke.md), updated 2026-11-07.
 Date: 2026-11-06. Baseline inspected: `1026e7e` (remote fetch unavailable).
 Parent: [original design](2026-07-14-browserbuddy-design.md).
 Plan: [implementation tasks](../plans/2026-11-06-m4-recall.md).
@@ -19,7 +20,7 @@ Recall searches across sessions; separate cross-session synthesis artifacts rema
 
 ## Approaches and proposed decisions
 
-These recommendations are not previously approved user decisions.
+The backend-owned approach was accepted for implementation by user continuation.
 
 1. **Backend-owned service and worker (recommended):** `buddy serve` owns model resources
    and jobs. New CLI/MCP operations call authenticated local HTTP. New commands require the
@@ -227,7 +228,9 @@ continue without consuming a retry. Final synthesis obeys context limits and nam
 page/character counts. Reads use manifest versions; no changing evidence midway through a job.
 
 Publish via temp file and atomic rename to
-digests/<session_id>/<source_version>-<config_id>.md, then commit ready state. A restart
+digests/<session_id>/<source_version>-<config_id>-<claim_token>.md, then commit ready state.
+The database pointer selects the visible artifact; claim-specific paths prevent an obsolete
+publisher from overwriting a newer artifact. A restart
 between rename and DB publication verifies/reuses or safely regenerates the artifact.
 DigestResult: id, state (missing/pending/failed/ready/stale), source_version, stale,
 previous_output (boolean, default false), job_id,
@@ -240,8 +243,9 @@ to pending with explicit origin and clear its summary checkpoint. Retain the pre
 artifact until its replacement is atomically published; reads return pending plus previous
 Markdown marked as previous output. Repeated requests while pending/running return that job
 without another reset. Normal reads/reconciliation never reset done work. Resetting a job
-invalidates its prior claim token. Publication replaces the same artifact path only after
-the new output has passed validation; failure leaves the previous artifact available.
+invalidates its prior claim token. Publication replaces the visible database pointer only
+after the new output has passed validation; failure leaves the previous artifact available.
+Old and orphan files remain until a separately designed retention/GC feature.
 
 Sections: pages read/approximate dwell, cited findings, notable unfollowed links, open
 questions. Label suggested questions as suggestions. Shared pure score_outbound_links

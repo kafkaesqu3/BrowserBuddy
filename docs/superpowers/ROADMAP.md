@@ -19,7 +19,7 @@ Plans live in `docs/superpowers/plans/`.
 | **M2** Extension Tier 1 | Firefox MV3 extension: tabs + history sync, durable queue, WS client, pairing options page | ✅ merged |
 | **M3a** Session capture core | Explicit sessions (popup start/pause/stop + badge), Readability text + raw-HTML capture, content-addressed gzip blob store, schema v2 (`sessions`/`page_visits` + FTS), `buddy sessions` + page search | ✅ merged |
 | **M3b** Richer session capture | see below | ⬜ next candidate |
-| **M4** Recall agent + digests | see below | ⬜ next candidate |
+| **M4** Recall agent + digests | retrieval, indexing, recall/MCP, digests implemented on `feat/m4-recall`; validation closeout pending | 🟨 in progress |
 | **M5** Web dashboard | Session list, stats, link-graph explorer, session-detail view, chat-with-agent UI; local React SPA served by the backend | ⬜ later |
 | **M6** Sidebar | In-browser sidebar: chat with the current page, archive the current tab on demand, show active session state | ⬜ later |
 
@@ -152,11 +152,13 @@ seed into a durable, improvable signal.
 
 ## M4 — Recall agent, MCP, and digests
 
-**Proposed execution documents (2026-11-06; awaiting design approval):**
+**Execution documents (design approved by continuation; implementation in progress):**
 [M4 design](specs/2026-11-06-m4-recall-design.md) and
 [M4 implementation plan](plans/2026-11-06-m4-recall.md).
 The proposal splits delivery into retrieval, durable hybrid indexing, recall/MCP, and digests.
-It explicitly defers OCR and new UI surfaces; no M4 implementation is marked complete.
+It explicitly defers OCR and new UI surfaces. Implementation is on `feat/m4-recall`;
+see [validation evidence](smoke/2026-11-06-m4-smoke.md). Real-model smoke remains pending
+because the environment denied access to the model download host; the milestone is not closed.
 
 The payoff milestone (spec build-order steps 4–5; both v1 success criteria).
 Depends only on M3a data (sessions + `page_visits` FTS already exist), so it
@@ -185,9 +187,10 @@ can proceed before M3b.
   Surface the truncation when a page exceeds the limit (no silent caps).
 - **CLI**: `buddy ask "..."`, `buddy digest <session>`.
 
-**Recommendation:** M4 next — real captured sessions are already in the DB, so
-the agent and digests deliver visible value immediately; M3b is incremental
-capture polish and its link-graph/dwell data only accrues going forward.
+**Next:** close M4 acceptance with a cached real-model smoke and native Windows checks,
+then integrate the implementation branch. Live provider compatibility smoke is optional.
+After M4 closes, the next main milestone is the M5 dashboard; M3b interactive smoke debt
+remains tracked above.
 
 ---
 
