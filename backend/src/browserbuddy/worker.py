@@ -79,10 +79,25 @@ class Worker:
             )
 
     async def _handle(self, job):
+        if job.kind.startswith("embed_"):
+            from browserbuddy.embeddings import LocalEmbedder
+            from browserbuddy.indexing import index_document
+
+            if not hasattr(self, "embedder"):
+                self.embedder = LocalEmbedder(self.settings)
+            await asyncio.to_thread(
+                index_document, job, settings=self.settings, embedder=self.embedder
+            )
+            return
         raise CapabilityUnavailable("No handler configured")
 
 
 def embedding_identity(settings: Settings) -> str:
+    from browserbuddy.embeddings import config_id, prepared_config
+
+    prepared = prepared_config(settings)
+    if prepared:
+        return config_id(prepared)
     return content_version(settings.embedding_model, settings.embedding_revision, "512/64/32/v1")
 
 

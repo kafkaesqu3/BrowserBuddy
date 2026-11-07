@@ -183,6 +183,24 @@ CREATE INDEX jobs_ready ON enrichment_jobs(state,next_attempt_at,id);
 """)
 
 
+MIGRATIONS.append("""
+CREATE TABLE embedding_configs (id TEXT PRIMARY KEY, config_json TEXT NOT NULL);
+CREATE TABLE memory_chunks (
+    id INTEGER PRIMARY KEY, source_kind TEXT NOT NULL, source_id INTEGER NOT NULL,
+    source_version TEXT NOT NULL, config_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+    kind TEXT NOT NULL, text TEXT NOT NULL, start INTEGER, end INTEGER, vector BLOB NOT NULL,
+    UNIQUE(source_kind,source_id,source_version,config_id,kind,ordinal)
+);
+CREATE TABLE indexed_documents (
+    source_kind TEXT NOT NULL, source_id INTEGER NOT NULL, source_version TEXT NOT NULL,
+    config_id TEXT NOT NULL, chunk_count INTEGER NOT NULL,
+    completed_at INTEGER NOT NULL DEFAULT (unixepoch()*1000),
+    PRIMARY KEY(source_kind,source_id,source_version,config_id)
+);
+CREATE INDEX chunks_generation ON memory_chunks(config_id,source_kind,source_id);
+""")
+
+
 def connect(db_path: Path | str) -> sqlite3.Connection:
     """Open (creating if needed) the BrowserBuddy database and apply migrations."""
     # Single-writer by design (one Storage per connection); FastAPI/TestClient may
