@@ -6,11 +6,24 @@ from fastapi import HTTPException, Query
 
 from browserbuddy.jobs import JobStore
 from browserbuddy.memory_api import invoke
-from browserbuddy.memory_models import JobInfo, JobPage, SetupResult
+from browserbuddy.memory_models import AskRequest, JobInfo, JobPage, RecallAnswer, SetupResult
 
 
 def register_operations(router, service) -> None:
     jobs = JobStore(service.settings)
+
+    @router.post("/ask")
+    async def ask(request: AskRequest) -> RecallAnswer:
+        from browserbuddy.recall import RecallService
+
+        try:
+            return await RecallService(service.settings, service).ask(request)
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid recall input or missing model configuration") from exc
+        except Exception as exc:
+            raise HTTPException(
+                503, "Recall failed; check tool-calling support and model endpoint"
+            ) from exc
 
     @router.get("/jobs")
     def list_jobs(
