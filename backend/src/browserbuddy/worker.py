@@ -108,9 +108,12 @@ def reconcile(settings: Settings, *, now: int) -> int:
         settings: Backend capabilities and storage location.
         now: Sweep time; source identity deliberately excludes wall-clock time.
     """
+    from browserbuddy.digests import reconcile_digests
+
+    added = reconcile_digests(settings)
     if not settings.semantic_enabled:
-        return 0
-    jobs, added = JobStore(settings), 0
+        return added
+    jobs = JobStore(settings)
     config = embedding_identity(settings)
     for kind, table in (("page", "page_visits"), ("history", "history_entries")):
         after = 0

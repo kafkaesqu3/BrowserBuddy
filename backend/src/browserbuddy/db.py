@@ -201,6 +201,18 @@ CREATE INDEX chunks_generation ON memory_chunks(config_id,source_kind,source_id)
 """)
 
 
+MIGRATIONS.append("""
+CREATE TABLE digests (
+    id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES sessions(id),
+    source_version TEXT NOT NULL, config_id TEXT NOT NULL,
+    job_id INTEGER NOT NULL REFERENCES enrichment_jobs(id),
+    evidence_manifest TEXT NOT NULL, summary_checkpoint TEXT NOT NULL DEFAULT '{}',
+    markdown_path TEXT, generated_at INTEGER,
+    UNIQUE(session_id,source_version,config_id)
+);
+""")
+
+
 def connect(db_path: Path | str) -> sqlite3.Connection:
     """Open (creating if needed) the BrowserBuddy database and apply migrations."""
     # Single-writer by design (one Storage per connection); FastAPI/TestClient may
