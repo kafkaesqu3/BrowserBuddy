@@ -9,6 +9,8 @@ from browserbuddy import db
 from browserbuddy.auth import get_or_create_secret, verify_secret
 from browserbuddy.blobs import BlobStore
 from browserbuddy.config import Settings, get_settings
+from browserbuddy.memory import MemoryService
+from browserbuddy.memory_api import create_memory_router
 from browserbuddy.models import (
     PROTOCOL_VERSION,
     AuthMessage,
@@ -39,6 +41,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.secret = get_or_create_secret(settings.data_dir)
     app.state.blobs = BlobStore(settings.data_dir / "blobs")
     app.state.settings = settings
+    app.state.memory = MemoryService(settings)
+    app.include_router(create_memory_router(app.state.memory))
 
     @app.get("/health")
     def health() -> dict[str, object]:
