@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import sqlite3
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
@@ -25,8 +26,10 @@ from browserbuddy.models import (
     SessionStartEvent,
     TabStateEvent,
 )
+from browserbuddy.ownership import BackendOwner
 from browserbuddy.phash import difference_hash, stitch_vertical
 from browserbuddy.storage import NoActiveSessionError, Storage
+from browserbuddy.worker import Worker
 
 logger = logging.getLogger(__name__)
 
@@ -36,8 +39,22 @@ WS_CLOSE_UNAUTHORIZED = 4401
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    app = FastAPI(title="BrowserBuddy")
-    app.state.storage = Storage(db.connect(settings.db_path))
+
+    @asynccontextmanager
+    async def lifespan(app):
+        with BackendOwner(settings.data_dir):
+            worker = Worker(settings)
+            app.state.worker = worker
+            worker.start()
+            try:
+                yield
+            finally:
+                await worker.stop()
+                app.state.storage._conn.close()
+
+    app = FastAPI(title="BrowserBuddy", lifespan=lifespan)
+    with BackendOwner(settings.data_dir):
+        app.state.storage = Storage(db.connect(settings.db_path))
     app.state.secret = get_or_create_secret(settings.data_dir)
     app.state.blobs = BlobStore(settings.data_dir / "blobs")
     app.state.settings = settings
