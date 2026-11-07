@@ -123,7 +123,16 @@ class MemoryService:
         self.settings = settings
 
     def capabilities(self) -> Capabilities:
-        return Capabilities()
+        return self.hybrid.capabilities()
+
+    @property
+    def hybrid(self):
+        from browserbuddy.embeddings import LocalEmbedder
+        from browserbuddy.search import HybridSearch
+
+        if not hasattr(self, "_hybrid"):
+            self._hybrid = HybridSearch(self.settings, LocalEmbedder(self.settings))
+        return self._hybrid
 
     def search_memory(self, request: SearchRequest) -> SearchResponse:
         return self._search(request, "page")
@@ -132,15 +141,7 @@ class MemoryService:
         return self._search(request, "history")
 
     def _search(self, request: SearchRequest, kind: str) -> SearchResponse:
-        hits = lexical_hits(self.settings, request, kind)
-        capped = len(hits) > 200
-        collapsed = collapse_hits(hits[:200])
-        return SearchResponse(
-            hits=collapsed[: request.limit],
-            truncated=capped or len(collapsed) > request.limit,
-            capabilities=self.capabilities(),
-            warnings=["candidate_cap_reached"] if capped else [],
-        )
+        return self.hybrid.search(request, source_kind=kind)
 
     def get_page(self, page_visit_id: int, *, offset: int = 0, max_chars: int = 12000):
         if offset < 0 or not 1 <= max_chars <= 24000:
