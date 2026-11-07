@@ -41,6 +41,16 @@ def register(app: typer.Typer) -> None:
     app.add_typer(jobs_app, name="jobs")
     app.add_typer(index_app, name="index")
 
+    @app.command("digest")
+    def digest(session_id: int, regenerate: bool = False):
+        async def operation(client):
+            result = await client.get_session_digest(session_id)
+            if regenerate or result.state in ("missing", "stale"):
+                return await client.digest(session_id, regenerate=regenerate)
+            return result
+
+        run_client(operation)
+
     @app.command("mcp")
     def mcp():
         from browserbuddy.mcp import run_mcp

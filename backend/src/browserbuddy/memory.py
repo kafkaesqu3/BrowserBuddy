@@ -222,7 +222,6 @@ class MemoryService:
         )
 
     def get_session_digest(self, session_id: int) -> DigestResult:
-        with connection(self.settings) as conn:
-            if not conn.execute("SELECT id FROM sessions WHERE id=?", (session_id,)).fetchone():
-                raise LookupError(f"session {session_id} not found")
-        return DigestResult()
+        from browserbuddy.digests import DigestService
+
+        return DigestService(self.settings).get_session_digest(session_id)

@@ -6,11 +6,33 @@ from fastapi import HTTPException, Query
 
 from browserbuddy.jobs import JobStore
 from browserbuddy.memory_api import invoke
-from browserbuddy.memory_models import AskRequest, JobInfo, JobPage, RecallAnswer, SetupResult
+from browserbuddy.memory_models import (
+    AskRequest,
+    Contract,
+    DigestResult,
+    JobInfo,
+    JobPage,
+    RecallAnswer,
+    SetupResult,
+)
+
+
+class DigestRequest(Contract):
+    regenerate: bool = False
 
 
 def register_operations(router, service) -> None:
     jobs = JobStore(service.settings)
+
+    @router.post("/sessions/{session_id}/digest", status_code=202)
+    def request_digest(session_id: int, request: DigestRequest) -> DigestResult:
+        from browserbuddy.digests import DigestService
+
+        return invoke(
+            lambda: DigestService(service.settings).request_digest(
+                session_id, regenerate=request.regenerate
+            )
+        )
 
     @router.post("/ask")
     async def ask(request: AskRequest) -> RecallAnswer:

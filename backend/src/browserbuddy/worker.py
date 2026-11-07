@@ -89,7 +89,9 @@ class Worker:
                 index_document, job, settings=self.settings, embedder=self.embedder
             )
             return
-        raise CapabilityUnavailable("No handler configured")
+        from browserbuddy.digest_generation import generate_digest
+
+        await generate_digest(job, settings=self.settings)
 
 
 def embedding_identity(settings: Settings) -> str:
