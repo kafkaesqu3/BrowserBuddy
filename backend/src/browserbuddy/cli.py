@@ -12,6 +12,10 @@ from browserbuddy.storage import Storage
 
 app = typer.Typer(help="BrowserBuddy — your browser's research historian.")
 
+from browserbuddy.cli_memory import register  # noqa: E402 — commands attach to the existing app.
+
+register(app)
+
 
 def _fmt_time(ms: int) -> str:
     return datetime.fromtimestamp(ms / 1000, tz=UTC).strftime("%Y-%m-%d %H:%M")

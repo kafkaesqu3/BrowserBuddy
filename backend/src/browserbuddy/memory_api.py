@@ -88,4 +88,7 @@ def create_memory_router(service: MemoryService) -> APIRouter:
     def digest(session_id: int) -> DigestResult:
         return invoke(lambda: service.get_session_digest(session_id))
 
+    from browserbuddy.operations_api import register_operations
+
+    register_operations(router, service)
     return router
