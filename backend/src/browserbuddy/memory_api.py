@@ -45,6 +45,19 @@ def create_memory_router(service: MemoryService) -> APIRouter:
 
     router = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
 
+    @router.get("/capabilities")
+    def capabilities() -> Capabilities:
+        return service.capabilities()
+
+    _register_retrieval(router, service)
+    from browserbuddy.operations_api import register_operations
+
+    register_operations(router, service)
+    return router
+
+
+def _register_retrieval(router, service) -> None:
+
     @router.post("/memory/search")
     def search_memory(request: SearchRequest) -> SearchResponse:
         return invoke(lambda: service.search_memory(request))
@@ -52,10 +65,6 @@ def create_memory_router(service: MemoryService) -> APIRouter:
     @router.post("/history/search")
     def search_history(request: SearchRequest) -> SearchResponse:
         return invoke(lambda: service.search_history(request))
-
-    @router.get("/capabilities")
-    def capabilities() -> Capabilities:
-        return service.capabilities()
 
     @router.get("/tabs")
     def tabs() -> list[OpenTab]:
@@ -87,8 +96,3 @@ def create_memory_router(service: MemoryService) -> APIRouter:
     @router.get("/sessions/{session_id}/digest")
     def digest(session_id: int) -> DigestResult:
         return invoke(lambda: service.get_session_digest(session_id))
-
-    from browserbuddy.operations_api import register_operations
-
-    register_operations(router, service)
-    return router

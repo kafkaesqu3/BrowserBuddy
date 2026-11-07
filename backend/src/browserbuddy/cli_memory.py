@@ -20,6 +20,12 @@ def parse_time(value: str | None) -> int | None:
 
 
 def run_client(operation) -> None:
+    """Run a backend operation with documented command-line failure codes.
+
+    Args:
+        operation: Async operation receiving a backend client.
+    """
+
     async def run():
         async with MemoryClient(get_settings()) as client:
             return await operation(client)
@@ -36,10 +42,12 @@ def run_client(operation) -> None:
 
 
 def register(app: typer.Typer) -> None:
-    jobs_app = typer.Typer(invoke_without_command=True)
-    index_app = typer.Typer()
-    app.add_typer(jobs_app, name="jobs")
-    app.add_typer(index_app, name="index")
+    """Attach backend-dependent commands to the existing CLI.
+
+    Args:
+        app: Existing Typer application.
+    """
+    _register_jobs(app)
 
     @app.command("digest")
     def digest(session_id: int, regenerate: bool = False):
@@ -69,6 +77,16 @@ def register(app: typer.Typer) -> None:
         session: int | None = None,
         json: bool = False,
     ):
+        """Run bounded recall and validate the resulting evidence provenance.
+
+        Args:
+            question: Recall question.
+            since: Inclusive ISO timestamp.
+            until: Exclusive ISO timestamp.
+            session: Optional numeric session filter.
+            json: Machine-readable output preference.
+        """
+
         async def operation(client):
             return await client.ask(
                 AskRequest(
@@ -80,6 +98,13 @@ def register(app: typer.Typer) -> None:
             )
 
         run_client(operation)
+
+
+def _register_jobs(app):
+    jobs_app = typer.Typer(invoke_without_command=True)
+    index_app = typer.Typer()
+    app.add_typer(jobs_app, name="jobs")
+    app.add_typer(index_app, name="index")
 
     @jobs_app.callback()
     def jobs(ctx: typer.Context, after_id: int = 0, limit: int = 20, json: bool = False):

@@ -3,7 +3,7 @@
 import struct
 
 from browserbuddy.config import Settings
-from browserbuddy.embeddings import INFERENCE, Chunk, LocalEmbedder, validate_vector
+from browserbuddy.embeddings import INFERENCE, Chunk, LocalEmbedder, config_id, validate_vector
 from browserbuddy.jobs import JobStore
 from browserbuddy.memory import connection, content_version
 from browserbuddy.memory_models import JobInfo
@@ -67,6 +67,13 @@ def publish_index(job: JobInfo, *, settings: Settings, chunks: list[Chunk], vect
 
 
 def index_document(job: JobInfo, *, settings: Settings, embedder: LocalEmbedder) -> None:
+    """Compute vectors outside transactions and publish a complete generation.
+
+    Args:
+        job: Claimed job with version and ownership metadata.
+        settings: Backend configuration and storage location.
+        embedder: Prepared local encoder boundary.
+    """
     from browserbuddy.worker import CapabilityUnavailable, embedding_identity
 
     if not settings.semantic_enabled:
@@ -79,11 +86,19 @@ def index_document(job: JobInfo, *, settings: Settings, embedder: LocalEmbedder)
         row = conn.execute(f"SELECT * FROM {table} WHERE id=?", (job.source_id,)).fetchone()
     if row is None:
         raise ValueError("source missing")
-    chunks, vectors = INFERENCE.submit(
-        embedder.document,
-        title=row["title"],
-        url=row["url"],
-        text=row["text"] if job.kind == "embed_page" else "",
-    ).result()
+    encoded = INFERENCE.submit(_encode_generation, embedder, job, dict(row)).result()
+    if encoded is None:
+        JobStore(settings).finish(job.id, claim_token=job.claim_token)
+        return
+    chunks, vectors = encoded
     if not publish_index(job, settings=settings, chunks=chunks, vectors=vectors):
         JobStore(settings).finish(job.id, claim_token=job.claim_token)
+
+
+def _encode_generation(embedder, job, row):
+    embedder.load()
+    if config_id(embedder.config) != job.config_id:
+        return None
+    return embedder.document(
+        title=row["title"], url=row["url"], text=row["text"] if job.kind == "embed_page" else ""
+    )

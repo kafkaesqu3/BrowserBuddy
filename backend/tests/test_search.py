@@ -88,3 +88,80 @@ def test_vector_search_filters_before_limit(tmp_path):
     assert [hit.source_id for hit in result.hits] == [wanted]
     assert result.hits[0].citation.start == 0
     conn.close()
+
+
+def test_missing_native_extension_reports_lexical_fallback(tmp_path, monkeypatch):
+    import json
+    import sys
+
+    from browserbuddy.memory import MemoryService
+    from browserbuddy.memory_models import SearchRequest
+
+    settings = Settings(data_dir=tmp_path, semantic_enabled=True)
+    conn = db.connect(settings.db_path)
+    session = Storage(conn).start_session("c", "s", 1)
+    Storage(conn).add_page_visit(
+        session,
+        url="https://t",
+        title="quantum",
+        text="qubits",
+        visited_at=1,
+        html_key=None,
+        container=None,
+    )
+    (tmp_path / "embedding.json").write_text(
+        json.dumps(
+            {
+                "model": settings.embedding_model,
+                "requested_revision": "main",
+                "revision": "A",
+            }
+        )
+    )
+    monkeypatch.setitem(sys.modules, "sqlite_vec", None)
+    result = MemoryService(settings).search_memory(SearchRequest(query="quantum"))
+    assert result.mode == "fts"
+    assert len(result.hits) == 1
+    assert result.capabilities.semantic == "unavailable"
+    conn.close()
+
+
+def test_generation_change_during_query_returns_lexical_fallback(tmp_path):
+    import json
+
+    from browserbuddy.memory_models import SearchRequest
+    from browserbuddy.search import HybridSearch
+
+    settings = Settings(data_dir=tmp_path, semantic_enabled=True)
+    conn = db.connect(settings.db_path)
+    session = Storage(conn).start_session("c", "s", 1)
+    Storage(conn).add_page_visit(
+        session,
+        url="https://t",
+        title="quantum",
+        text="qubits",
+        visited_at=1,
+        html_key=None,
+        container=None,
+    )
+
+    class Encoder:
+        def query(self, text):
+            (tmp_path / "embedding.json").write_text(
+                json.dumps(
+                    {
+                        "model": settings.embedding_model,
+                        "requested_revision": settings.embedding_revision,
+                        "revision": "new-generation",
+                    }
+                )
+            )
+            return [1.0, 0.0]
+
+    result = HybridSearch(settings, Encoder()).search(
+        SearchRequest(query="quantum"), source_kind="page"
+    )
+    assert result.mode == "fts"
+    assert len(result.hits) == 1
+    assert "semantic_unavailable" in result.warnings
+    conn.close()

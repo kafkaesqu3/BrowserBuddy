@@ -2,7 +2,10 @@
 
 import asyncio
 import logging
+import sqlite3
 import time
+
+import httpx
 
 from browserbuddy.config import Settings
 from browserbuddy.jobs import JobKey, JobStore
@@ -11,16 +14,27 @@ from browserbuddy.memory import connection, content_version
 logger = logging.getLogger(__name__)
 
 
+def _retryable(error: Exception) -> bool:
+    status = getattr(error, "status_code", None)
+    if status is not None:
+        return status == 429 or status >= 500
+    return isinstance(
+        error, (TimeoutError, OSError, sqlite3.OperationalError, httpx.TransportError)
+    )
+
+
 class CapabilityUnavailable(RuntimeError):
     """Work may resume when a local capability is configured or prepared."""
 
 
 class Worker:
-    def __init__(self, settings: Settings, *, handler=None):
+    def __init__(self, settings: Settings, *, handler=None, embedder=None):
         self.settings = settings
         self.handler = handler or self._handle
         self.jobs = JobStore(settings)
         self.tasks = []
+        if embedder is not None:
+            self.embedder = embedder
 
     def start(self) -> None:
         self.jobs.recover()
@@ -51,6 +65,7 @@ class Worker:
             await asyncio.sleep(1)
 
     async def run_once(self) -> bool:
+        """Execute one claimed job without blocking ingestion."""
         now = int(time.time() * 1000)
         job = await asyncio.to_thread(self.jobs.claim, now=now)
         if job is None:
@@ -65,7 +80,7 @@ class Worker:
                 job.id,
                 claim_token=job.claim_token,
                 error_code=type(exc).__name__,
-                transient=not isinstance(exc, ValueError),
+                transient=_retryable(exc),
                 now=now,
             )
         return True

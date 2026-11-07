@@ -20,6 +20,11 @@ class EvidenceLedger:
         self.characters = 0
 
     def record(self, value):
+        """Account for serialized evidence and retain visible citation spans.
+
+        Args:
+            value: Evidence response to account for.
+        """
         serialized = value.model_dump_json() if hasattr(value, "model_dump_json") else str(value)
         if self.characters + len(serialized) > 48000:
             raise ValueError("evidence budget exceeded; narrow the query")
@@ -27,8 +32,11 @@ class EvidenceLedger:
         if isinstance(value, SearchResponse):
             for hit in value.hits:
                 citation = hit.citation
+                end = citation.end
+                if citation.start is not None and end is not None:
+                    end = min(end, citation.start + len(hit.excerpt))
                 self.sources.setdefault((hit.source_kind, hit.source_id), []).append(
-                    (citation.chunk_id, citation.start, citation.end)
+                    (citation.chunk_id, citation.start, end)
                 )
         if isinstance(value, PageEvidence):
             self.sources.setdefault(("page", value.id), []).append(
@@ -38,6 +46,12 @@ class EvidenceLedger:
 
 
 def validate_citations(answer: RecallAnswer, *, ledger: EvidenceLedger) -> RecallAnswer:
+    """Reject citations outside the evidence returned to the model.
+
+    Args:
+        answer: Structured model output.
+        ledger: Evidence returned within this run.
+    """
     if len(answer.text) > 12000:
         raise ValueError("answer exceeds output budget")
     if answer.status == "answered" and not answer.citations:
@@ -63,6 +77,13 @@ def _span_allowed(citation: Citation, entry: tuple) -> bool:
 
 
 def temporal_request(request: AskRequest, *, timezone: str, now: datetime) -> AskRequest:
+    """Resolve last week using calendar boundaries in the configured timezone.
+
+    Args:
+        request: Validated query and caller-selected filters.
+        timezone: IANA timezone for calendar interpretation.
+        now: Current time used for deterministic scheduling or calendar resolution.
+    """
     if request.since is not None or request.until is not None:
         return request
     if "last week" not in request.question.lower():
@@ -84,6 +105,12 @@ class RecallTools:
         self.memory, self.request, self.ledger = memory, request, ledger
 
     def constrain(self, request: SearchRequest, *, history=False) -> SearchRequest:
+        """Intersect model-selected filters with the mandatory caller scope.
+
+        Args:
+            request: Validated query and caller-selected filters.
+            history: Whether the request targets browsing metadata.
+        """
         scope = self.request
         since = max(x for x in (scope.since, request.since, 0) if x is not None)
         untils = [x for x in (scope.until, request.until) if x is not None]
@@ -96,6 +123,11 @@ class RecallTools:
             session_id=None if history else scope.session_id or request.session_id,
             limit=request.limit,
         )
+
+    def require_unscoped_metadata(self) -> None:
+        scope = self.request
+        if any(value is not None for value in (scope.session_id, scope.since, scope.until)):
+            raise ValueError("global metadata is unavailable for scoped recall")
 
     def page(self, page_id: int, *, offset=0, max_chars=12000):
         page = self.memory.get_page(page_id, offset=offset, max_chars=max_chars)
@@ -110,6 +142,13 @@ class RecallTools:
 
 
 def register_tools(agent, tools: RecallTools) -> None:
+    """Expose read-only tools with mandatory caller-scope enforcement.
+
+    Args:
+        agent: Bounded model agent.
+        tools: Read-only adapters with request scope.
+    """
+
     @agent.tool_plain
     def search_memory(request: SearchRequest) -> SearchResponse:
         """Search stored page evidence within the requested time and session scope."""
@@ -138,12 +177,19 @@ def register_tools(agent, tools: RecallTools) -> None:
     @agent.tool_plain
     def list_sessions(after_id: int = 0, limit: int = 20):
         """List session metadata; use search tools for bounded evidence."""
+        tools.require_unscoped_metadata()
         return tools.ledger.record(tools.memory.list_sessions(after_id=after_id, limit=limit))
 
     @agent.tool_plain
     def get_open_tabs():
         """Return current tab metadata, which cannot prove historical page contents."""
+        tools.require_unscoped_metadata()
         return tools.ledger.record(tools.memory.get_open_tabs())
+
+    _register_digest_tool(agent, tools)
+
+
+def _register_digest_tool(agent, tools):
 
     @agent.tool_plain
     def get_session_digest(session_id: int):
@@ -160,6 +206,7 @@ class RecallService:
         self.settings, self.memory, self.model = settings, memory, model
 
     def provider_model(self):
+        """Build the explicitly configured provider or use an injected model."""
         from pydantic_ai.models.openai import OpenAIChatModel
         from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -176,6 +223,11 @@ class RecallService:
         )
 
     async def ask(self, request: AskRequest) -> RecallAnswer:
+        """Run bounded recall and validate the resulting evidence provenance.
+
+        Args:
+            request: Validated query and caller-selected filters.
+        """
         from pydantic_ai import Agent, ModelRetry
         from pydantic_ai.usage import UsageLimits
 
@@ -184,14 +236,6 @@ class RecallService:
         tools = RecallTools(self.memory, request, ledger)
         search = tools.constrain(SearchRequest(query=request.question))
         initial = ledger.record(await asyncio.to_thread(self.memory.search_memory, search))
-        if not initial.hits:
-            return RecallAnswer(
-                text="No captured evidence matched the requested scope.",
-                status="insufficient_evidence",
-                since=request.since,
-                until=request.until,
-                warnings=initial.warnings,
-            )
         agent = Agent(
             self.provider_model(),
             output_type=RecallAnswer,

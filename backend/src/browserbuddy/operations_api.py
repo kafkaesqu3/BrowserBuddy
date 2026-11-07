@@ -22,7 +22,13 @@ class DigestRequest(Contract):
 
 
 def register_operations(router, service) -> None:
-    jobs = JobStore(service.settings)
+    """Attach operational routes to an authenticated router.
+
+    Args:
+        router: Authenticated FastAPI router.
+        service: Shared retrieval service.
+    """
+    _register_jobs(router, service)
 
     @router.post("/sessions/{session_id}/digest", status_code=202)
     def request_digest(session_id: int, request: DigestRequest) -> DigestResult:
@@ -46,6 +52,10 @@ def register_operations(router, service) -> None:
             raise HTTPException(
                 503, "Recall failed; check tool-calling support and model endpoint"
             ) from exc
+
+
+def _register_jobs(router, service):
+    jobs = JobStore(service.settings)
 
     @router.get("/jobs")
     def list_jobs(

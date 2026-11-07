@@ -44,6 +44,16 @@ class MemoryClient:
     async def request(
         self, method: str, path: str, response_type, *, payload=None, params=None, timeout=100
     ):
+        """Send authenticated HTTP and validate its typed response.
+
+        Args:
+            method: HTTP method.
+            path: Backend-relative endpoint path.
+            response_type: Response validation contract.
+            payload: JSON request body.
+            params: Query parameters.
+            timeout: HTTP timeout in seconds.
+        """
         try:
             response = await self.http.request(
                 method, path, json=payload, params=params, timeout=timeout

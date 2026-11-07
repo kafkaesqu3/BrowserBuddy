@@ -21,6 +21,12 @@ class JobStore:
         self.settings = settings
 
     def enqueue(self, key: JobKey, *, origin: str = "automatic") -> JobInfo:
+        """Persist work once per source and configuration identity.
+
+        Args:
+            key: Unique source/version/configuration identity.
+            origin: Explicit or automatic request origin.
+        """
         with connection(self.settings) as conn, conn:
             conn.execute(
                 "INSERT INTO enrichment_jobs(kind,source_id,source_version,config_id,origin)"
@@ -44,6 +50,12 @@ class JobStore:
         return JobInfo(**dict(row))
 
     def list(self, *, after_id: int = 0, limit: int = 20) -> JobPage:
+        """List durable jobs and their retry status.
+
+        Args:
+            after_id: Exclusive ID cursor.
+            limit: Maximum returned items.
+        """
         page_bounds(after_id, limit)
         with connection(self.settings) as conn:
             rows = conn.execute(
@@ -57,6 +69,11 @@ class JobStore:
         )
 
     def claim(self, *, now: int) -> JobInfo | None:
+        """Atomically claim eligible work using a unique publication token.
+
+        Args:
+            now: Current time used for deterministic scheduling or calendar resolution.
+        """
         with connection(self.settings) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
@@ -93,6 +110,15 @@ class JobStore:
     def fail(
         self, job_id: int, *, claim_token: str, error_code: str, transient: bool, now: int
     ) -> None:
+        """Record a fenced failure and schedule bounded retries.
+
+        Args:
+            job_id: Persistent job identifier.
+            claim_token: Token proving ownership of this attempt.
+            error_code: Sanitized failure code.
+            transient: Whether the failure is eligible for retry.
+            now: Current time used for deterministic scheduling or calendar resolution.
+        """
         job = self.get(job_id)
         retry = transient and job.attempt < 6
         delay = [5000, 30000, 120000, 600000, 3600000][job.attempt - 1] if retry else 0
@@ -104,6 +130,11 @@ class JobStore:
             )
 
     def retry(self, job_id: int) -> JobInfo:
+        """Explicitly reset a failed job without duplicating its identity.
+
+        Args:
+            job_id: Persistent job identifier.
+        """
         self.get(job_id)
         with connection(self.settings) as conn, conn:
             changed = conn.execute(

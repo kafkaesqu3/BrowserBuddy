@@ -86,6 +86,13 @@ class DigestService:
     def request_digest(
         self, session_id: int, *, regenerate=False, origin="explicit"
     ) -> DigestResult:
+        """Queue a frozen session snapshot or explicitly regenerate existing work.
+
+        Args:
+            session_id: Stable numeric session identifier.
+            regenerate: Whether completed or failed work should be replaced.
+            origin: Explicit or automatic request origin.
+        """
         manifest = snapshot_session(session_id, settings=self.settings)
         version, config = manifest.source_version, digest_config(self.settings)
         with connection(self.settings) as conn, conn:
@@ -119,6 +126,11 @@ class DigestService:
         return self.get_session_digest(session_id)
 
     def get_session_digest(self, session_id: int) -> DigestResult:
+        """Return current work status and the latest available artifact.
+
+        Args:
+            session_id: Stable numeric session identifier.
+        """
         version = snapshot_session(session_id, settings=self.settings).source_version
         config = digest_config(self.settings)
         with connection(self.settings) as conn:
@@ -130,10 +142,20 @@ class DigestService:
             ).fetchone()
         if row is None:
             return DigestResult()
+        artifact = row
+        if row["markdown_path"] is None:
+            with connection(self.settings) as conn:
+                previous = conn.execute(
+                    "SELECT * FROM digests WHERE session_id=? AND markdown_path IS NOT NULL"
+                    " ORDER BY generated_at DESC,id DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+            if previous is not None:
+                artifact = previous
         stale = row["source_version"] != version or row["config_id"] != config
         markdown = ""
-        if row["markdown_path"]:
-            path = self.settings.data_dir / row["markdown_path"]
+        if artifact["markdown_path"]:
+            path = self.settings.data_dir / artifact["markdown_path"]
             try:
                 markdown = path.read_text()
             except FileNotFoundError:
@@ -148,17 +170,22 @@ class DigestService:
             id=row["id"],
             state="stale" if stale else state,
             source_version=row["source_version"],
-            stale=stale,
+            stale=stale or artifact["id"] != row["id"],
             previous_output=bool(markdown) and state != "ready",
             job_id=row["job_id"],
             error_code=row["error_code"],
             markdown=markdown[:24000],
-            markdown_path=row["markdown_path"],
+            markdown_path=artifact["markdown_path"],
             truncated=len(markdown) > 24000,
         )
 
 
 def reconcile_digests(settings: Settings) -> int:
+    """Discover ended sessions including implicit and historical closures.
+
+    Args:
+        settings: Backend configuration and storage location.
+    """
     if not settings.auto_digests or not settings.llm_configured:
         return 0
     service, added, after = DigestService(settings), 0, 0

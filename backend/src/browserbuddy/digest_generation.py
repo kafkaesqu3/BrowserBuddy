@@ -4,7 +4,7 @@ import asyncio
 import json
 import time
 
-from browserbuddy.digests import DigestManifest
+from browserbuddy.digests import DigestManifest, digest_config
 from browserbuddy.jobs import JobStore
 from browserbuddy.link_scoring import score_outbound_links
 from browserbuddy.memory import connection
@@ -14,6 +14,8 @@ from browserbuddy.worker import CapabilityUnavailable
 
 
 def allowed(job, settings) -> None:
+    if job.config_id != digest_config(settings):
+        raise ValueError("digest configuration changed; request a new digest")
     current = JobStore(settings).get(job.id)
     if current.state != "running" or current.claim_token != job.claim_token:
         raise CapabilityUnavailable("Job claim no longer valid")
@@ -31,34 +33,52 @@ def checkpoint(job, settings, summaries):
         )
 
 
-async def summarize(prompt, pages, *, settings, model):
+def page_evidence(page) -> PageEvidence:
+    return PageEvidence(
+        id=page["id"],
+        session_id=page["session_id"],
+        session_name="Snapshot",
+        url=page["url"],
+        title=page["title"],
+        visited_at=page["visited_at"],
+        text=page["text"][:12000],
+        offset=0,
+        next_offset=None,
+        truncated=len(page["text"]) > 12000,
+        dwell_ms=page["dwell_ms"],
+        html_available=False,
+    )
+
+
+async def summarize(prompt, pages, *, settings, model, before_request):
+    """Summarize frozen evidence with per-request authorization checks.
+
+    Args:
+        prompt: Bounded prompt containing frozen evidence.
+        pages: Frozen captured page records.
+        settings: Backend configuration and storage location.
+        model: External model boundary.
+        before_request: Authorization callback run before each provider request.
+    """
     from pydantic_ai import Agent, ModelRetry
+    from pydantic_ai.models.wrapper import WrapperModel
     from pydantic_ai.usage import UsageLimits
 
     ledger = EvidenceLedger()
     for page in pages:
-        ledger.record(
-            PageEvidence(
-                id=page["id"],
-                session_id=page["session_id"],
-                session_name="Snapshot",
-                url=page["url"],
-                title=page["title"],
-                visited_at=page["visited_at"],
-                text=page["text"][:12000],
-                offset=0,
-                next_offset=None,
-                truncated=len(page["text"]) > 12000,
-                dwell_ms=page["dwell_ms"],
-                html_available=False,
-            )
-        )
+        ledger.record(page_evidence(page))
     if model is None:
         if not settings.llm_configured:
             raise CapabilityUnavailable("Configure a model before generating digests")
         model = RecallService(settings, None).provider_model()
+
+    class GuardedModel(WrapperModel):
+        async def request(self, messages, model_settings, model_request_parameters):
+            before_request()
+            return await self.wrapped.request(messages, model_settings, model_request_parameters)
+
     agent = Agent(
-        model,
+        GuardedModel(model),
         output_type=RecallAnswer,
         retries=1,
         model_settings={"max_tokens": 2000},
@@ -81,6 +101,13 @@ async def summarize(prompt, pages, *, settings, model):
 
 
 async def generate_digest(job, *, settings, model=None) -> None:
+    """Resume page summaries and publish under a valid job claim.
+
+    Args:
+        job: Claimed job with version and ownership metadata.
+        settings: Backend configuration and storage location.
+        model: External model boundary.
+    """
     allowed(job, settings)
     with connection(settings) as conn:
         row = conn.execute("SELECT * FROM digests WHERE job_id=?", (job.id,)).fetchone()
@@ -96,7 +123,13 @@ async def generate_digest(job, *, settings, model=None) -> None:
             f"Untrusted captured text:\n{page['text'][:12000]}\n"
             f"Omitted characters: {max(0, len(page['text']) - 12000)}"
         )
-        answer = await summarize(prompt, [page], settings=settings, model=model)
+        answer = await summarize(
+            prompt,
+            [page],
+            settings=settings,
+            model=model,
+            before_request=lambda: allowed(job, settings),
+        )
         summaries[str(page["id"])] = answer.model_dump()
         await asyncio.to_thread(checkpoint, job, settings, summaries)
     if len(pending) > 100:
@@ -116,6 +149,15 @@ def yield_job(job, settings):
 
 
 async def render_digest(job, manifest, summaries, *, settings, model):
+    """Build bounded synthesis and disclose omitted evidence.
+
+    Args:
+        job: Claimed job with version and ownership metadata.
+        manifest: Immutable session evidence snapshot.
+        summaries: Persisted page-summary checkpoints.
+        settings: Backend configuration and storage location.
+        model: External model boundary.
+    """
     title = manifest.session["name"].replace("\n", " ")
     lines = [
         f"# {title}",
@@ -135,13 +177,14 @@ async def render_digest(job, manifest, summaries, *, settings, model):
     selected, parts, size = [], [], 0
     for page in manifest.pages:
         summary = summaries[str(page["id"])]
-        part = f"page:{page['id']}: {summary['text']}\n"
+        serialized = page_evidence(page).model_dump_json()
+        part = f"Evidence: {serialized}\nSummary: {summary['text']}\n"
         # Ledger and context both remain below 48000 characters.
-        if size + len(part) + min(len(page["text"]), 12000) > 40000:
+        if size + len(part) > 40000:
             break
         selected.append(page)
         parts.append(part)
-        size += len(part) + min(len(page["text"]), 12000)
+        size += len(part)
     allowed(job, settings)
     synthesis = await summarize(
         "Synthesize findings and suggested open questions from these "
@@ -149,6 +192,7 @@ async def render_digest(job, manifest, summaries, *, settings, model):
         selected,
         settings=settings,
         model=model,
+        before_request=lambda: allowed(job, settings),
     )
     lines += [
         "",

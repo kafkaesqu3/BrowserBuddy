@@ -49,6 +49,12 @@ def page_bounds(after_id: int, limit: int) -> None:
 
 
 def filtered_source(request: SearchRequest, kind: str) -> tuple[str, list, str, str]:
+    """Build parameterized source filters before retrieval limits.
+
+    Args:
+        request: Validated query and caller-selected filters.
+        kind: Trusted page or history source kind.
+    """
     if kind == "history" and request.session_id is not None:
         raise ValueError("history search cannot filter by session")
     table, timestamp = (
@@ -66,6 +72,13 @@ def filtered_source(request: SearchRequest, kind: str) -> tuple[str, list, str, 
 
 
 def lexical_hits(settings: Settings, request: SearchRequest, kind: str) -> list[SearchHit]:
+    """Rank captured documents with filtered literal-token full-text search.
+
+    Args:
+        settings: Backend configuration and storage location.
+        request: Validated query and caller-selected filters.
+        kind: Trusted page or history source kind.
+    """
     where, params, table, timestamp = filtered_source(request, kind)
     if not request.query:
         return []
@@ -88,6 +101,12 @@ def lexical_hits(settings: Settings, request: SearchRequest, kind: str) -> list[
 
 
 def row_hit(row: sqlite3.Row, kind: str) -> SearchHit:
+    """Convert a stored search row to stable evidence.
+
+    Args:
+        row: Stored database row.
+        kind: Trusted page or history source kind.
+    """
     return SearchHit(
         source_kind=kind,
         source_id=row["id"],
@@ -104,6 +123,11 @@ def row_hit(row: sqlite3.Row, kind: str) -> SearchHit:
 
 
 def collapse_hits(hits: list[SearchHit]) -> list[SearchHit]:
+    """Collapse identical captures within a session and retain occurrence counts.
+
+    Args:
+        hits: Ranked evidence to collapse.
+    """
     found = {}
     for hit in hits:
         key = (
@@ -144,6 +168,13 @@ class MemoryService:
         return self.hybrid.search(request, source_kind=kind)
 
     def get_page(self, page_visit_id: int, *, offset: int = 0, max_chars: int = 12000):
+        """Read a bounded slice of a captured page version.
+
+        Args:
+            page_visit_id: Stable captured-page identifier.
+            offset: Starting character offset.
+            max_chars: Maximum returned characters.
+        """
         if offset < 0 or not 1 <= max_chars <= 24000:
             raise ValueError("offset must be nonnegative and max_chars must be 1..24000")
         with connection(self.settings) as conn:
@@ -182,6 +213,12 @@ class MemoryService:
         return base.with_suffix(".bin").is_file() or base.with_suffix(".gz").is_file()
 
     def list_sessions(self, *, after_id: int = 0, limit: int = 20) -> SessionPage:
+        """Read session metadata in stable ID order.
+
+        Args:
+            after_id: Exclusive ID cursor.
+            limit: Maximum returned items.
+        """
         page_bounds(after_id, limit)
         with connection(self.settings) as conn:
             rows = conn.execute(
@@ -204,6 +241,13 @@ class MemoryService:
             ]
 
     def get_screenshots(self, page_visit_id: int, *, after_id=0, limit=20) -> ScreenshotPage:
+        """List screenshot metadata and artifact availability.
+
+        Args:
+            page_visit_id: Stable captured-page identifier.
+            after_id: Exclusive ID cursor.
+            limit: Maximum returned items.
+        """
         page_bounds(after_id, limit)
         self.get_page(page_visit_id, max_chars=1)
         with connection(self.settings) as conn:

@@ -32,6 +32,7 @@ class HybridSearch:
         self.settings, self.embedder = settings, embedder
 
     def capabilities(self) -> Capabilities:
+        """Report configured generation coverage and local availability."""
         caps = Capabilities(llm_configured=self.settings.llm_configured)
         if not self.settings.semantic_enabled:
             return caps
@@ -49,6 +50,12 @@ class HybridSearch:
         return caps
 
     def search(self, request: SearchRequest, *, source_kind: str) -> SearchResponse:
+        """Fuse filtered retrieval branches or report lexical fallback.
+
+        Args:
+            request: Validated query and caller-selected filters.
+            source_kind: Page or history retrieval source.
+        """
         lexical = lexical_hits(self.settings, request, source_kind)
         capped, mode, warnings = len(lexical) > 200, "fts", []
         hits = lexical[:200]
@@ -68,20 +75,26 @@ class HybridSearch:
             ):
                 warnings.append("semantic_unavailable")
         hits = collapse_hits(hits)
+        capabilities = self.capabilities()
+        if "semantic_unavailable" in warnings:
+            capabilities.semantic = "unavailable"
         if capped:
             warnings.append("candidate_cap_reached")
         return SearchResponse(
             hits=hits[: request.limit],
             truncated=capped or len(hits) > request.limit,
             mode=mode,
-            capabilities=self.capabilities(),
+            capabilities=capabilities,
             warnings=warnings,
         )
 
     def _vectors(self, request: SearchRequest, kind: str) -> list[SearchHit]:
         import sqlite_vec
 
+        generation = embedding_identity(self.settings)
         vector = self.embedder.query(request.query)
+        if embedding_identity(self.settings) != generation:
+            raise CapabilityUnavailable("Embedding generation changed during query")
         vector = validate_vector(vector, dimensions=len(vector))
         packed = struct.pack(f"<{len(vector)}f", *vector)
         where, params, table, timestamp = filtered_source(request, kind)
@@ -111,7 +124,7 @@ class HybridSearch:
                 " AND d.config_id=c.config_id WHERE c.config_id=? AND c.source_kind=?"
                 f" AND d.source_version=content_version(p.title,p.url,{text}) AND {where})"
                 " SELECT * FROM distances WHERE rn=1 ORDER BY score,captured_at DESC,id LIMIT 201",
-                [packed, packed, embedding_identity(self.settings), kind, *params],
+                [packed, packed, generation, kind, *params],
             ).fetchall()
         hits = []
         for row in rows:
@@ -119,5 +132,7 @@ class HybridSearch:
             hit.chunk_id = hit.citation.chunk_id = row["chunk_id"]
             hit.citation.start, hit.citation.end = row["start"], row["end"]
             hit.excerpt = row["excerpt"][:1200]
+            if hit.citation.start is not None:
+                hit.citation.end = hit.citation.start + len(hit.excerpt)
             hits.append(hit)
         return hits

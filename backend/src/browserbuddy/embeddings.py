@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 from browserbuddy.config import Settings
+from browserbuddy.memory import connection
 from browserbuddy.memory_models import SetupResult
 
 INFERENCE = ThreadPoolExecutor(max_workers=1, thread_name_prefix="buddy-inference")
@@ -83,6 +84,9 @@ class LocalEmbedder:
 
     def prepare(self) -> SetupResult:
         """Download the explicitly selected model and record immutable identity."""
+        return INFERENCE.submit(self._prepare).result()
+
+    def _prepare(self) -> SetupResult:
         from huggingface_hub import snapshot_download
         from sentence_transformers import SentenceTransformer
 
@@ -91,6 +95,7 @@ class LocalEmbedder:
                 self.settings.embedding_model,
                 revision=self.settings.embedding_revision,
                 cache_dir=str(self.settings.data_dir / "models"),
+                allow_patterns=["*.json", "*.txt", "*.safetensors", "*.model"],
             )
             model = SentenceTransformer(
                 path, device="cpu", trust_remote_code=False, local_files_only=True
@@ -112,10 +117,16 @@ class LocalEmbedder:
             temp = dest.with_suffix(".tmp")
             temp.write_text(json.dumps(data, sort_keys=True))
             temp.replace(dest)
+            with connection(self.settings) as conn, conn:
+                conn.execute(
+                    "INSERT OR IGNORE INTO embedding_configs(id,config_json) VALUES(?,?)",
+                    (config_id(data), json.dumps(data, sort_keys=True)),
+                )
             self.config, self.model = data, model
             return SetupResult(config_id=config_id(data), ready=True)
 
     def load(self) -> None:
+        """Load only prepared local weights for the selected generation."""
         from browserbuddy.worker import CapabilityUnavailable
 
         config = prepared_config(self.settings)
@@ -148,6 +159,13 @@ class LocalEmbedder:
             future.cancel()
 
     def document(self, *, title: str, url: str, text: str) -> tuple[list[Chunk], list]:
+        """Encode capacity-checked document chunks and metadata.
+
+        Args:
+            title: Input specified by the shared service contract.
+            url: Input specified by the shared service contract.
+            text: Input specified by the shared service contract.
+        """
         self.load()
         tokenizer = self.model.tokenizer
         prefix_ids = tokenizer(title, add_special_tokens=False)["input_ids"][:32]
@@ -160,4 +178,8 @@ class LocalEmbedder:
         metadata = tokenizer.decode(metadata_ids[:metadata_capacity])
         chunks.append(Chunk(metadata, len(chunks), "metadata"))
         inputs = [prefix + chunk.text if chunk.kind == "body" else chunk.text for chunk in chunks]
+        if any(len(tokenizer(value)["input_ids"]) > self.model.max_seq_length for value in inputs):
+            raise ValueError(
+                "tokenizer boundary exceeded model capacity; refusing silent truncation"
+            )
         return chunks, self.encode(inputs)

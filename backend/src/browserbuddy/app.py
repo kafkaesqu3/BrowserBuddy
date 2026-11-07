@@ -43,7 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         with BackendOwner(settings.data_dir):
-            worker = Worker(settings)
+            worker = Worker(settings, embedder=app.state.memory.hybrid.embedder)
             app.state.worker = worker
             worker.start()
             try:
@@ -81,6 +81,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key = await asyncio.to_thread(app.state.blobs.put, body, compress=False)
         return {"key": key}
 
+    _register_ingest(app)
+    return app
+
+
+def _register_ingest(app: FastAPI) -> None:
     @app.websocket("/ws")
     async def ws_ingest(ws: WebSocket) -> None:
         storage: Storage = app.state.storage
@@ -143,8 +148,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await ws.send_json({"type": "ack", "seq": envelope.seq})
         except WebSocketDisconnect:
             pass
-
-    return app
 
 
 def _require_active_session(storage: Storage, client_id: str, event_name: str) -> sqlite3.Row:
