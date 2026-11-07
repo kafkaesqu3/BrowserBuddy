@@ -163,6 +163,26 @@ MIGRATIONS: list[str] = [
 ]
 
 
+MIGRATIONS.append("""
+CREATE TABLE enrichment_jobs (
+    id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CHECK(kind IN ('embed_page','embed_history','digest')),
+    source_id INTEGER NOT NULL,
+    source_version TEXT NOT NULL,
+    config_id TEXT NOT NULL,
+    origin TEXT NOT NULL CHECK(origin IN ('automatic','explicit')),
+    state TEXT NOT NULL DEFAULT 'pending'
+        CHECK(state IN ('pending','running','done','failed')),
+    attempt INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL DEFAULT 0,
+    claim_token TEXT,
+    error_code TEXT,
+    UNIQUE(kind,source_id,source_version,config_id)
+);
+CREATE INDEX jobs_ready ON enrichment_jobs(state,next_attempt_at,id);
+""")
+
+
 def connect(db_path: Path | str) -> sqlite3.Connection:
     """Open (creating if needed) the BrowserBuddy database and apply migrations."""
     # Single-writer by design (one Storage per connection); FastAPI/TestClient may
