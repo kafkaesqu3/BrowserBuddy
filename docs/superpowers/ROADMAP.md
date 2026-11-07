@@ -152,6 +152,12 @@ seed into a durable, improvable signal.
 
 ## M4 — Recall agent, MCP, and digests
 
+**Proposed execution documents (2026-11-06; awaiting design approval):**
+[M4 design](specs/2026-11-06-m4-recall-design.md) and
+[M4 implementation plan](plans/2026-11-06-m4-recall.md).
+The proposal splits delivery into retrieval, durable hybrid indexing, recall/MCP, and digests.
+It explicitly defers OCR and new UI surfaces; no M4 implementation is marked complete.
+
 The payoff milestone (spec build-order steps 4–5; both v1 success criteria).
 Depends only on M3a data (sessions + `page_visits` FTS already exist), so it
 can proceed before M3b.
